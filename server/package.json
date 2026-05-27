@@ -1,0 +1,31 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "Express API for the Linda LIM POS web interface",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon index.js",
+    "start": "node index.js",
+    "test": "node --test tests/checkout.e2e.test.js",
+    "test:checkout-e2e": "node scripts/run-checkout-e2e.js",
+    "verify:checkout-schema": "node scripts/verify-checkout-schema.js",
+    "test:checkout-live": "node scripts/test-checkout-live.js",
+    "test:print-logo": "node scripts/test-print-logo.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "multer": "^2.1.1",
+    "mysql2": "^3.22.3",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

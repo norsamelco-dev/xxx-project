@@ -1,0 +1,157 @@
+const { getPool } = require('../db');
+const {
+  normalizePrintLogoAlign,
+  normalizePrintLogoWidth,
+  isPrintLogoEnabled,
+} = require('../utils/escPosLogo');
+
+const editableFields = [
+  'busi_name',
+  'busi_addr',
+  'busi_owner',
+  'busi_vat_type',
+  'busi_tin',
+  'vat_rate',
+  'developer',
+  'accreditation_no',
+  'valid_start',
+  'valid_until',
+  'softwareversion',
+  'contactdetail',
+  'business_logo_path',
+  'developer_logo_path',
+  'print_logo_width',
+  'print_logo_align',
+  'print_logo_enabled',
+];
+
+function normalizeText(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const text = String(value).trim();
+  return text.length ? text : null;
+}
+
+function normalizeDate(value) {
+  const text = normalizeText(value);
+
+  if (!text) {
+    return null;
+  }
+
+  return text;
+}
+
+function normalizeVatRate(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const parsed = Number(value);
+
+  if (Number.isNaN(parsed)) {
+    const error = new Error('vat_rate must be a valid number.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return parsed;
+}
+
+function normalizePrintLogoEnabled(value) {
+  if (value === undefined || value === null || value === '') {
+    return 1;
+  }
+  return isPrintLogoEnabled(value) ? 1 : 0;
+}
+
+function normalizePayload(payload) {
+  return {
+    busi_name: normalizeText(payload.busi_name),
+    busi_addr: normalizeText(payload.busi_addr),
+    busi_owner: normalizeText(payload.busi_owner),
+    busi_vat_type: normalizeText(payload.busi_vat_type),
+    busi_tin: normalizeText(payload.busi_tin),
+    vat_rate: normalizeVatRate(payload.vat_rate),
+    developer: normalizeText(payload.developer),
+    accreditation_no: normalizeText(payload.accreditation_no),
+    valid_start: normalizeDate(payload.valid_start),
+    valid_until: normalizeDate(payload.valid_until),
+    softwareversion: normalizeText(payload.softwareversion),
+    contactdetail: normalizeText(payload.contactdetail),
+    business_logo_path: normalizeText(payload.business_logo_path),
+    developer_logo_path: normalizeText(payload.developer_logo_path),
+    print_logo_width: normalizePrintLogoWidth(payload.print_logo_width),
+    print_logo_align: normalizePrintLogoAlign(payload.print_logo_align),
+    print_logo_enabled: normalizePrintLogoEnabled(payload.print_logo_enabled),
+  };
+}
+
+async function getReceiptHeading() {
+  const [rows] = await getPool().query(
+    `SELECT id, busi_name, busi_addr, busi_owner, busi_vat_type, busi_tin, vat_rate,
+            developer, accreditation_no, valid_start, valid_until, softwareversion, contactdetail,
+            business_logo_path, developer_logo_path,
+            print_logo_width, print_logo_align, print_logo_enabled
+     FROM receipt_heading
+     ORDER BY id ASC
+     LIMIT 1`,
+  );
+
+  return rows[0] || null;
+}
+
+async function saveReceiptHeading(payload) {
+  const normalized = normalizePayload(payload);
+  const existing = await getReceiptHeading();
+  const targetId = Number(payload.id) || existing?.id || null;
+
+  if (targetId) {
+    const values = editableFields.map((field) => normalized[field]);
+    values.push(targetId);
+
+    await getPool().query(
+      `UPDATE receipt_heading
+       SET busi_name = ?,
+           busi_addr = ?,
+           busi_owner = ?,
+           busi_vat_type = ?,
+           busi_tin = ?,
+           vat_rate = ?,
+           developer = ?,
+           accreditation_no = ?,
+           valid_start = ?,
+           valid_until = ?,
+           softwareversion = ?,
+           contactdetail = ?,
+           business_logo_path = ?,
+           developer_logo_path = ?,
+           print_logo_width = ?,
+           print_logo_align = ?,
+           print_logo_enabled = ?
+       WHERE id = ?`,
+      values,
+    );
+  } else {
+    await getPool().query(
+      `INSERT INTO receipt_heading
+       (busi_name, busi_addr, busi_owner, busi_vat_type, busi_tin, vat_rate,
+        developer, accreditation_no, valid_start, valid_until, softwareversion, contactdetail,
+        business_logo_path, developer_logo_path, print_logo_width, print_logo_align, print_logo_enabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      editableFields.map((field) => normalized[field]),
+    );
+  }
+
+  return getReceiptHeading();
+}
+
+module.exports = {
+  getReceiptHeading,
+  saveReceiptHeading,
+  normalizePrintLogoWidth,
+  normalizePrintLogoAlign,
+  normalizePrintLogoEnabled,
+};

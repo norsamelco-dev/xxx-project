@@ -1,0 +1,83 @@
+[data-theme='theme3'] .theme3-login-shell {
+  min-height: 100vh;
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+[data-theme='theme3'] .theme3-login-backdrop {
+  position: fixed;
+  inset: 0;
+  background:
+    linear-gradient(rgba(15, 23, 42, 0.45), rgba(15, 23, 42, 0.55)),
+    radial-gradient(circle at 20% 20%, var(--accent), transparent 40%),
+    linear-gradient(135deg, var(--color-secondary), var(--color-primary));
+  z-index: 0;
+}
+
+[data-theme='theme3'] .theme3-login-float {
+  position: relative;
+  z-index: 1;
+  width: min(440px, 100%);
+  backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--surface-strong) 88%, transparent);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
+}
+
+[data-theme='theme3'] .theme3-btn {
+  min-height: 46px;
+  padding: 0 20px;
+  border-radius: 10px;
+  background: transparent;
+  font-weight: 600;
+}
+
+[data-theme='theme3'] .theme3-btn--primary {
+  border: 2px solid var(--color-primary);
+  color: var(--color-primary);
+}
+
+[data-theme='theme3'] .theme3-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+[data-theme='theme3'] .theme3-btn--secondary {
+  border: 2px solid var(--line);
+  color: var(--text);
+}
+
+[data-theme='theme3'] .theme3-table-wrap {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+
+[data-theme='theme3'] .theme3-table th,
+[data-theme='theme3'] .theme3-table td {
+  border: none;
+  border-bottom: 1px solid transparent;
+}
+
+[data-theme='theme3'] .theme3-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+[data-theme='theme3'] .button-primary,
+[data-theme='theme3'] a.button-primary {
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-primary);
+  border: 2px solid var(--color-primary);
+  box-shadow: none;
+}
+
+[data-theme='theme3'] .button-secondary,
+[data-theme='theme3'] a.button-secondary {
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  border: 2px solid var(--line);
+  box-shadow: none;
+}

@@ -1,0 +1,51 @@
+{
+  "name": "linda-lim-pos-desktop",
+  "version": "1.0.0",
+  "description": "Linda LIM POS — Windows desktop (Electron)",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k \"npm run dev --prefix ../server\" \"npm run web --prefix ../pos-mobile-expo\" \"wait-on http://127.0.0.1:8584 http://127.0.0.1:5000/api/local/printers && cross-env POS_DESKTOP_DEV=1 electron .\"",
+    "dev:electron-only": "cross-env POS_DESKTOP_DEV=1 electron .",
+    "build:web": "npm run export:web --prefix ../pos-mobile-expo",
+    "build:win": "npm run build:web && electron-builder --win --x64",
+    "start": "electron ."
+  },
+  "build": {
+    "appId": "com.floraldearjay.pos.desktop",
+    "productName": "Linda LIM POS",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "dist/renderer/**/*"
+    ],
+    "win": {
+      "icon": "../pos-mobile-expo/assets/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Linda LIM POS"
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "cross-env": "^7.0.3",
+    "electron": "^35.7.5",
+    "electron-builder": "^26.0.12",
+    "wait-on": "^8.0.5"
+  }
+}

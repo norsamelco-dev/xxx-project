@@ -1,0 +1,120 @@
+[data-theme='theme5'] {
+  background: var(--bg);
+  color: var(--text);
+}
+
+[data-theme='theme5'] .admin-sidebar {
+  background: linear-gradient(180deg, #0b1220 0%, var(--surface-sidebar) 100%);
+}
+
+[data-theme='theme5'] .theme5-login-shell {
+  min-height: 100vh;
+}
+
+[data-theme='theme5'] .theme5-login-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) 1fr;
+  min-height: 100vh;
+}
+
+[data-theme='theme5'] .theme5-login-sidebar {
+  background: linear-gradient(180deg, #0b1220, #111827);
+  color: rgba(255, 255, 255, 0.9);
+  padding: 40px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+[data-theme='theme5'] .theme5-login-logo-fallback {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 1.5rem;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 2px 2px 6px rgba(255, 255, 255, 0.06), inset -2px -2px 6px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme='theme5'] .theme5-login-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.9rem;
+}
+
+[data-theme='theme5'] .theme5-login-form {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: var(--surface-strong);
+}
+
+[data-theme='theme5'] .theme5-btn {
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: 14px;
+  border: none;
+  font-weight: 600;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 6px 6px 14px rgba(15, 23, 42, 0.12), -6px -6px 14px rgba(255, 255, 255, 0.85);
+}
+
+[data-theme='theme5'] .theme5-btn--primary {
+  color: var(--accent);
+}
+
+[data-theme='theme5'] .theme5-btn:active:not(:disabled) {
+  box-shadow: inset 4px 4px 10px rgba(15, 23, 42, 0.12), inset -4px -4px 10px rgba(255, 255, 255, 0.85);
+}
+
+[data-theme='theme5'] .theme5-table-wrap {
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 14px;
+}
+
+[data-theme='theme5'] .theme5-table {
+  color: #e2e8f0;
+}
+
+[data-theme='theme5'] .theme5-table th {
+  background: rgba(148, 163, 184, 0.12);
+  color: #f8fafc;
+}
+
+[data-theme='theme5'] .theme5-table td {
+  border-color: rgba(148, 163, 184, 0.15);
+}
+
+[data-theme='theme5'] .theme5-table tbody tr:hover {
+  background: rgba(56, 189, 248, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35);
+}
+
+@media (max-width: 920px) {
+  [data-theme='theme5'] .theme5-login-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+[data-theme='theme5'] .button-primary,
+[data-theme='theme5'] a.button-primary,
+[data-theme='theme5'] .button-secondary,
+[data-theme='theme5'] a.button-secondary {
+  border-radius: 14px;
+  border: none;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 6px 6px 14px rgba(15, 23, 42, 0.12), -6px -6px 14px rgba(255, 255, 255, 0.08);
+}
+
+[data-theme='theme5'] .button-primary,
+[data-theme='theme5'] a.button-primary {
+  color: var(--accent);
+}
