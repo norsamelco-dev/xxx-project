@@ -3,8 +3,9 @@ import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-na
 import type { TextInput as TextInputType } from 'react-native'
 import { isCheckoutShortcut, isCustomQtyShortcut } from '../../hooks/useDesktopKeyboardShortcuts'
 import type { CartTotals } from '../../types/cart'
+import type { PosSummary } from '../../types/pos'
 import { colors, fonts, spacing } from '../../styles/theme'
-import { formatMoney } from '../../utils/vat'
+import { formatInteger, formatMoney, formatPercent } from '../../utils/vat'
 
 const BARCODE_INPUT_REFOCUS_MS = 1000
 
@@ -14,9 +15,11 @@ const panelWidth = Platform.OS === 'web'
 
 type Props = {
   currentOrnDisplay: string
+  terminalName: string
   barcode: string
   qty: number
   totals: CartTotals
+  summary: PosSummary | null
   cashierName: string
   disabled?: boolean
   refocusEnabled?: boolean
@@ -31,9 +34,11 @@ type Props = {
 
 export default function RightSummaryPanel({
   currentOrnDisplay,
+  terminalName,
   barcode,
   qty,
   totals,
+  summary,
   cashierName,
   disabled = false,
   refocusEnabled = true,
@@ -48,6 +53,12 @@ export default function RightSummaryPanel({
   const initials = getInitials(cashierName)
   const barcodeInputRef = useRef<TextInputType>(null)
   const [isBarcodeFocused, setIsBarcodeFocused] = useState(false)
+  const [now, setNow] = useState(new Date())
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     if (disabled || !refocusEnabled) {
@@ -95,6 +106,8 @@ export default function RightSummaryPanel({
         <View style={styles.ornCard}>
           <Text style={styles.ornLabel}>Current ORN</Text>
           <Text style={styles.ornValue}>{currentOrnDisplay}</Text>
+          <Text style={styles.ornTerminal}>Terminal: {terminalName || '-'}</Text>
+          <Text style={styles.ornDateTime}>{now.toLocaleString()}</Text>
         </View>
 
         <View style={styles.inputRow}>
@@ -146,7 +159,7 @@ export default function RightSummaryPanel({
         <View style={styles.totalsCard}>
           <SummaryMoneyRow label="Gross Sales" value={formatMoney(totals.grossSales)} />
           <SummaryMoneyRow label="Discount" value={formatMoney(totals.discountAmount)} />
-          <SummaryMoneyRow label="Disc. Rate %" value={`${(totals.discountRate * 100).toFixed(2)}%`} />
+          <SummaryMoneyRow label="Disc. Rate %" value={formatPercent(totals.discountRate * 100)} />
           <SummaryMoneyRow label="VAT (12.00%)" value={formatMoney(totals.vatAmount)} />
           <SummaryMoneyRow label="Net Total" value={formatMoney(totals.netSales)} />
         </View>
@@ -166,6 +179,26 @@ export default function RightSummaryPanel({
       <Pressable style={styles.checkoutButton} onPress={onCheckout}>
         <Text style={styles.checkoutText}>Checkout (Ctrl+Enter)</Text>
       </Pressable>
+
+      <View style={styles.seriesSummaryStrip}>
+        <SummaryChip label="Total Sales" value={formatMoney(summary?.total_sales || 0)} />
+        <SummaryChip label="Net Sales" value={formatMoney(summary?.net_sales || 0)} />
+        <SummaryChip label="VAT" value={formatMoney(summary?.vat_amount || 0)} />
+        <SummaryChip label="Qty Sold" value={formatInteger(summary?.qty_sold || 0)} />
+      </View>
+    </View>
+  )
+}
+
+function SummaryChip({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.summaryChip}>
+      <Text style={styles.summaryChipLabel} numberOfLines={1}>
+        {label}
+      </Text>
+      <Text style={styles.summaryChipValue} numberOfLines={1}>
+        {value}
+      </Text>
     </View>
   )
 }
@@ -292,6 +325,20 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontFamily: fonts.extrabold,
     textAlign: 'center',
+    marginBottom: spacing.xs,
+  },
+  ornTerminal: {
+    color: colors.text,
+    fontSize: 12,
+    fontFamily: fonts.semibold,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+  },
+  ornDateTime: {
+    color: colors.textMuted,
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 2,
   },
   inputRow: {
     flexDirection: 'row',
@@ -428,6 +475,33 @@ const styles = StyleSheet.create({
     fontFamily: fonts.extrabold,
     color: '#052e16',
     fontSize: 13,
+  },
+  seriesSummaryStrip: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  summaryChip: {
+    width: '48%',
+    minWidth: 100,
+    flexGrow: 1,
+  },
+  summaryChipLabel: {
+    color: colors.textMuted,
+    fontSize: 10,
+    marginBottom: 2,
+  },
+  summaryChipValue: {
+    color: colors.text,
+    fontSize: 12,
+    fontFamily: fonts.bold,
   },
 })
 

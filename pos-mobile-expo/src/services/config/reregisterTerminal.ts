@@ -1,4 +1,5 @@
 import type { NavigationProp } from '@react-navigation/native'
+import { clearCashCountDraft } from '../cashCount/cashCountDraftStore'
 import { deleteConfig } from './configStore'
 import { confirmAsync } from '../../utils/confirm'
 import type { RootStackParamList } from '../../navigation/types'
@@ -22,6 +23,7 @@ export async function reregisterTerminal({ navigation, logout, onConfigCleared }
   }
 
   await deleteConfig()
+  clearCashCountDraft()
   onConfigCleared?.()
   await logout()
   navigation.reset({ index: 0, routes: [{ name: 'MachineRegistration' }] })

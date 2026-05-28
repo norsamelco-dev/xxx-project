@@ -28,6 +28,38 @@ export function roundMoney(value: number) {
   return Math.round(Number(value) * 100) / 100
 }
 
+/** `1,234,567,890.12` — comma thousands, two decimals (no currency symbol). */
+export function formatAmount(value: number) {
+  const safe = Number.isFinite(Number(value)) ? roundMoney(Number(value)) : 0
+  return safe.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+/** `₱1,234,567,890.12` */
 export function formatMoney(value: number) {
-  return `₱${roundMoney(value).toFixed(2)}`
+  return `₱${formatAmount(value)}`
+}
+
+/** `1,234,567` — comma thousands, no decimals. */
+export function formatInteger(value: number) {
+  const safe = Number.isFinite(Number(value)) ? Math.round(Number(value)) : 0
+  return safe.toLocaleString('en-US')
+}
+
+/** `12.34%` */
+export function formatPercent(value: number, fractionDigits = 2) {
+  const safe = Number.isFinite(Number(value)) ? Number(value) : 0
+  return `${safe.toLocaleString('en-US', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  })}%`
+}
+
+/** Parses display/input values like `1,234.56` or `₱1,234.56`. */
+export function parseMoneyInput(value: string) {
+  const normalized = String(value).replace(/[₱,\s]/g, '').trim()
+  if (!normalized) {
+    return 0
+  }
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? roundMoney(parsed) : NaN
 }

@@ -187,14 +187,14 @@ function buildCompact80mmReceipt(options: ReceiptLayoutInput) {
 
   for (const item of lines) {
     rows.push(clipLine(`${item.name} x${item.qty}`))
-    rows.push(clipLine(item.total.toFixed(2).padStart(width)))
+    rows.push(clipLine(formatMoney(item.total).padStart(width)))
   }
 
   rows.push(divider())
-  rows.push(clipLine(`TOTAL: ${totals.grandTotal.toFixed(2)}`.padStart(width)))
+  rows.push(clipLine(`TOTAL: ${formatMoney(totals.grandTotal)}`.padStart(width)))
   rows.push(
     clipLine(
-      `${checkout.payment_method} · Tnd ${checkout.amt_tendered.toFixed(2)} · Chg ${checkout.amt_change.toFixed(2)}`,
+      `${checkout.payment_method} · Tnd ${formatMoney(checkout.amt_tendered)} · Chg ${formatMoney(checkout.amt_change)}`,
     ),
   )
   rows.push(clipLine(`MIN ${config.min_number} · PTU ${config.ptu_no} · SN ${config.serial_no}`))

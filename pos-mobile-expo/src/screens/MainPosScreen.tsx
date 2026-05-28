@@ -13,6 +13,8 @@ import NewSeriesConfirmModal from '../components/modals/NewSeriesConfirmModal'
 import StartingBalanceModal from '../components/modals/StartingBalanceModal'
 import CheckoutModal from '../components/modals/CheckoutModal'
 import AboutModal from '../components/modals/AboutModal'
+import TerminalInformationModal from '../components/modals/TerminalInformationModal'
+import CashCountSheetModal from '../components/modals/CashCountSheetModal'
 import ConfirmModal from '../components/modals/ConfirmModal'
 import DefaultPrinterModal from '../components/modals/DefaultPrinterModal'
 import PrintLayoutPreviewModal from '../components/modals/PrintLayoutPreviewModal'
@@ -45,11 +47,20 @@ import {
   getSampleTestPrintLayoutInput,
 } from '../services/printer/layoutPreviewSamples'
 import { reregisterTerminal } from '../services/config/reregisterTerminal'
-import { buildXReportText, buildZReportText, printXReport, printZReport } from '../services/printer/printerService'
+import {
+  buildXReportText,
+  buildZReportText,
+  printCashCountSheet,
+  printTerminalInfo,
+  printXReport,
+  printZReport,
+} from '../services/printer/printerService'
 import { alertMessage, confirmAsync } from '../utils/confirm'
 import { getPrintLogoPreviewStyle, isPrintLogoEnabled } from '../utils/printLogo'
 import type { RootStackParamList } from '../navigation/types'
-import type { PosReport, ProductLookup, ReceiptHeading } from '../types/pos'
+import { clearCashCountDraft } from '../services/cashCount/cashCountDraftStore'
+import type { CashCountSheetPrintInput } from '../types/cashCount'
+import type { PosReport, ProductLookup, ReceiptHeading, TerminalLookup } from '../types/pos'
 import type { PosConfig } from '../types/config'
 import {
   RECEIPT_LAYOUT_OPTIONS,
@@ -153,6 +164,10 @@ export default function MainPosScreen({ navigation }: Props) {
   const [discountOpen, setDiscountOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
+  const [terminalInfoOpen, setTerminalInfoOpen] = useState(false)
+  const [isPrintingTerminalInfo, setIsPrintingTerminalInfo] = useState(false)
+  const [cashCountOpen, setCashCountOpen] = useState(false)
+  const [isPrintingCashCount, setIsPrintingCashCount] = useState(false)
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const [printerOpen, setPrinterOpen] = useState(false)
   const [newSeriesOpen, setNewSeriesOpen] = useState(false)
@@ -187,6 +202,8 @@ export default function MainPosScreen({ navigation }: Props) {
     newSeriesOpen ||
     startingBalanceOpen ||
     aboutOpen ||
+    terminalInfoOpen ||
+    cashCountOpen ||
     logoutConfirmOpen ||
     printerOpen ||
     pendingLayoutPreview !== null ||
@@ -197,6 +214,7 @@ export default function MainPosScreen({ navigation }: Props) {
   async function handleConfirmNewSeries() {
     try {
       const seriesNo = await createNewSeries()
+      clearCashCountDraft()
       setStartingBalanceSeriesNo(seriesNo)
       setStartingBalanceSaved(false)
       setStartingBalanceOpen(true)
@@ -666,6 +684,72 @@ export default function MainPosScreen({ navigation }: Props) {
     }
   }
 
+  function handleOpenCashCountSheet() {
+    if (!config?.terminal_name) {
+      alertMessage('Cash Count Sheet', 'Terminal is not configured.')
+      return
+    }
+    if (!activeSeriesNo) {
+      alertMessage('Cash Count Sheet', 'Select an active sales series first.')
+      return
+    }
+    setCashCountOpen(true)
+  }
+
+  async function handlePrintCashCountSheet(
+    payload: Omit<CashCountSheetPrintInput, 'config'>,
+  ) {
+    if (!config) {
+      return
+    }
+
+    if (!config.default_printer) {
+      showToast('Set a default printer in File → Default Printer.', 'error')
+      return
+    }
+
+    setIsPrintingCashCount(true)
+    try {
+      await printCashCountSheet(
+        { ...payload, config },
+        config.default_printer,
+        config.default_printer_id,
+        config.default_printer_connection,
+      )
+      showToast('Cash count sheet sent to printer.', 'info')
+    } catch (error) {
+      alertMessage('Print failed', error instanceof Error ? error.message : 'Unable to print cash count sheet.')
+    } finally {
+      setIsPrintingCashCount(false)
+    }
+  }
+
+  async function handlePrintTerminalInfo(terminal: TerminalLookup | null) {
+    if (!config) {
+      return
+    }
+
+    if (!config.default_printer) {
+      showToast('Set a default printer in File → Default Printer.', 'error')
+      return
+    }
+
+    setIsPrintingTerminalInfo(true)
+    try {
+      await printTerminalInfo(
+        { config, terminal },
+        config.default_printer,
+        config.default_printer_id,
+        config.default_printer_connection,
+      )
+      showToast('Terminal information sent to printer.', 'info')
+    } catch (error) {
+      alertMessage('Print failed', error instanceof Error ? error.message : 'Unable to print terminal information.')
+    } finally {
+      setIsPrintingTerminalInfo(false)
+    }
+  }
+
   async function handlePrintReportFromModal() {
     if (!reportPrintKind || !reportPrintPayload || !config) {
       return
@@ -866,6 +950,8 @@ export default function MainPosScreen({ navigation }: Props) {
         }
         onLogout={() => setLogoutConfirmOpen(true)}
         onAbout={() => setAboutOpen(true)}
+        onTerminalInformation={() => setTerminalInfoOpen(true)}
+        onCashCountSheet={handleOpenCashCountSheet}
       />
       <View style={{ flex: 1, flexDirection: 'row', alignItems: 'stretch', opacity: canTransact ? 1 : 0.55 }}>
         <View style={{ flex: 1 }} pointerEvents={canTransact ? 'auto' : 'none'}>
@@ -877,13 +963,17 @@ export default function MainPosScreen({ navigation }: Props) {
             onUpdateQty={(lineId, qty) => void handleUpdateLineQty(lineId, qty)}
             onQtyEditorOpenChange={setIsCartQtyEditorOpen}
             onRemove={handleRemoveRequest}
+            onEmptyCart={handleEmptyCartRequest}
+            emptyCartDisabled={lines.length === 0}
           />
         </View>
         <RightSummaryPanel
           currentOrnDisplay={currentOrnDisplay}
+          terminalName={config.terminal_name}
           barcode={barcode}
           qty={pendingQty}
           totals={totals}
+          summary={summary}
           cashierName={user?.fullName || user?.username || 'Cashier'}
           disabled={!canTransact}
           refocusEnabled={!anyModalOpen}
@@ -904,12 +994,7 @@ export default function MainPosScreen({ navigation }: Props) {
           }}
         />
       </View>
-      <TerminalFooter
-        config={config}
-        summary={summary}
-        cartDisabled={!canTransact || lines.length === 0}
-        onEmptyCart={handleEmptyCartRequest}
-      />
+      <TerminalFooter config={config} />
       <ProductSearchModal visible={searchOpen} onClose={() => setSearchOpen(false)} onSelect={(product) => void addProduct(product)} />
       <CustomQtyModal
         visible={qtyOpen}
@@ -938,6 +1023,23 @@ export default function MainPosScreen({ navigation }: Props) {
       />
       <CheckoutModal visible={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
       <AboutModal visible={aboutOpen} onClose={() => setAboutOpen(false)} />
+      <TerminalInformationModal
+        visible={terminalInfoOpen}
+        config={config}
+        isPrinting={isPrintingTerminalInfo}
+        onClose={() => setTerminalInfoOpen(false)}
+        onPrint={(terminal) => void handlePrintTerminalInfo(terminal)}
+        onTerminalSynced={(next) => setConfig(next)}
+      />
+      <CashCountSheetModal
+        visible={cashCountOpen}
+        config={config}
+        activeSeriesNo={activeSeriesNo}
+        cashierName={user?.fullName || user?.username || 'Cashier'}
+        isPrinting={isPrintingCashCount}
+        onClose={() => setCashCountOpen(false)}
+        onPrint={(payload) => void handlePrintCashCountSheet(payload)}
+      />
       <ReportPrintPreviewModal
         visible={reportPrintKind !== null}
         kind={reportPrintKind ?? 'X'}
@@ -1086,6 +1188,7 @@ export default function MainPosScreen({ navigation }: Props) {
         destructive
         onConfirm={() => {
           setLogoutConfirmOpen(false)
+          clearCashCountDraft()
           void logout().finally(() => navigation.replace('Login'))
         }}
         onCancel={() => setLogoutConfirmOpen(false)}

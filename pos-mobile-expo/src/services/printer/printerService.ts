@@ -1,13 +1,16 @@
 import { Platform } from 'react-native'
 import axios from 'axios'
 import type { CartLine, CartTotals } from '../../types/cart'
-import type { CheckoutResult, PosReport, ReceiptHeading } from '../../types/pos'
+import type { CheckoutResult, PosReport, ReceiptHeading, TerminalLookup } from '../../types/pos'
 import type { PosConfig } from '../../types/config'
 import { resolveReceiptLayout, resolveTestPrintLayout, resolveXReportLayout, resolveZReportLayout } from '../../types/printLayouts'
 import { discoverPrinters } from './printerDiscovery'
 import { buildReceiptByLayout } from './layouts/receiptLayouts'
 import { buildXReadingReport, buildZReadingReport } from './layouts/reportLayouts'
 import { buildTestPrintByLayout } from './layouts/testPrintLayouts'
+import { buildTerminalInfoBody } from './layouts/terminalInfoLayouts'
+import { buildCashCountSheetBody } from './layouts/cashCountLayouts'
+import type { CashCountSheetPrintInput } from '../../types/cashCount'
 import { applyPrintMarginsToText, appendEscPosAutoCut } from './layouts/printLayoutUtils'
 import { getReceiptHeadingPublic } from '../api/posApi'
 import { reportGlobalConnectionError } from '../../context/NetworkErrorContext'
@@ -49,6 +52,30 @@ export function buildReceiptText(options: {
 export function buildTestPrintText(options: { config: PosConfig; printer: PrinterDevice }) {
   const layoutId = resolveTestPrintLayout(options.config.test_print_layout)
   const body = buildTestPrintByLayout(layoutId, options)
+  return applyPrintMarginsToText(body, {
+    left: options.config.print_margin_left,
+    right: options.config.print_margin_right,
+    top: options.config.print_margin_top,
+    bottom: options.config.print_margin_bottom,
+  })
+}
+
+export function buildTerminalInfoText(options: {
+  config: PosConfig
+  terminal?: TerminalLookup | null
+  printedAt?: Date
+}) {
+  const body = buildTerminalInfoBody(options)
+  return applyPrintMarginsToText(body, {
+    left: options.config.print_margin_left,
+    right: options.config.print_margin_right,
+    top: options.config.print_margin_top,
+    bottom: options.config.print_margin_bottom,
+  })
+}
+
+export function buildCashCountSheetText(options: CashCountSheetPrintInput) {
+  const body = buildCashCountSheetBody(options)
   return applyPrintMarginsToText(body, {
     left: options.config.print_margin_left,
     right: options.config.print_margin_right,
@@ -204,6 +231,40 @@ export async function printZReport(
 ) {
   const text = appendEscPosAutoCut(buildZReportText(options))
   return printReceipt(text, printerName, printerId, connectionType, options.heading)
+}
+
+export async function printTerminalInfo(
+  options: {
+    config: PosConfig
+    terminal?: TerminalLookup | null
+    printedAt?: Date
+  },
+  printerName: string,
+  printerId?: string,
+  connectionType?: PrinterDevice['connectionType'],
+) {
+  const text = appendEscPosAutoCut(
+    buildTerminalInfoText({
+      ...options,
+      printedAt: options.printedAt ?? new Date(),
+    }),
+  )
+  return printReceipt(text, printerName, printerId, connectionType, null)
+}
+
+export async function printCashCountSheet(
+  options: CashCountSheetPrintInput,
+  printerName: string,
+  printerId?: string,
+  connectionType?: PrinterDevice['connectionType'],
+) {
+  const text = appendEscPosAutoCut(
+    buildCashCountSheetText({
+      ...options,
+      printedAt: options.printedAt ?? new Date(),
+    }),
+  )
+  return printReceipt(text, printerName, printerId, connectionType, null)
 }
 
 /** @deprecated Use printXReport or printZReport */

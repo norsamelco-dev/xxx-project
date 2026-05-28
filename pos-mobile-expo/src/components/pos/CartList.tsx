@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FlatList, Image, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import { FlatList, Image, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import type { PressableStateCallbackType } from 'react-native'
 import type { CartLine } from '../../types/cart'
 import { colors, fonts, spacing } from '../../styles/theme'
 import { formatMoney } from '../../utils/vat'
@@ -13,6 +14,8 @@ type Props = {
   onUpdateQty?: (id: string, qty: number) => void | Promise<void>
   onQtyEditorOpenChange?: (isOpen: boolean) => void
   onRemove: (id: string) => void
+  onEmptyCart?: () => void
+  emptyCartDisabled?: boolean
 }
 
 function resolveImageUrl(path: string | null | undefined) {
@@ -50,6 +53,8 @@ export default function CartList({
   onUpdateQty,
   onQtyEditorOpenChange,
   onRemove,
+  onEmptyCart,
+  emptyCartDisabled = false,
 }: Props) {
   const [editingLineId, setEditingLineId] = useState<string | null>(null)
   const [qtyDraft, setQtyDraft] = useState('')
@@ -137,7 +142,7 @@ export default function CartList({
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, position: 'relative' }}>
       <ScrollView horizontal contentContainerStyle={{ flexGrow: 1 }}>
         <View style={{ flex: 1, minWidth: '100%' }}>
           <View
@@ -279,6 +284,9 @@ export default function CartList({
           />
         </View>
       </ScrollView>
+      {onEmptyCart ? (
+        <FloatingEmptyCartButton onPress={onEmptyCart} disabled={emptyCartDisabled} />
+      ) : null}
       <Modal visible={Boolean(editingLine)} transparent animationType="fade" onRequestClose={() => setEditingLineId(null)}>
         <View
           style={{
@@ -360,6 +368,109 @@ export default function CartList({
           </View>
         </View>
       </Modal>
+    </View>
+  )
+}
+
+type PressableStyleState = PressableStateCallbackType & { hovered?: boolean }
+
+function isWebHoverEnabled() {
+  return Platform.OS === 'web'
+}
+
+function FloatingEmptyCartButton({ onPress, disabled }: { onPress: () => void; disabled?: boolean }) {
+  function getFabStyle({ pressed, hovered }: PressableStyleState) {
+    const isHovered = isWebHoverEnabled() && hovered && !disabled
+    const isActive = isHovered || pressed
+    const scale = pressed ? 0.96 : isHovered ? 1.08 : 1
+
+    return [
+      {
+        position: 'absolute' as const,
+        right: spacing.lg,
+        bottom: spacing.lg,
+        width: 52,
+        height: 52,
+        borderRadius: 26,
+        backgroundColor: isActive ? 'rgba(220, 38, 38, 0.92)' : 'rgba(220, 38, 38, 0.38)',
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
+        borderWidth: 2,
+        borderColor: isActive ? 'rgba(252, 165, 165, 0.95)' : 'rgba(248, 113, 113, 0.55)',
+        shadowColor: '#000',
+        shadowOpacity: isActive ? 0.4 : 0.12,
+        shadowRadius: isActive ? 12 : 4,
+        shadowOffset: { width: 0, height: isActive ? 5 : 2 },
+        elevation: isActive ? 10 : 3,
+        transform: [{ scale }],
+        opacity: disabled ? 0.35 : 1,
+        zIndex: 20,
+        ...(isWebHoverEnabled()
+          ? ({
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              backdropFilter: 'blur(2px)',
+              WebkitBackdropFilter: 'blur(2px)',
+              transition:
+                'transform 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, opacity 160ms ease',
+            } as const)
+          : {}),
+      },
+    ]
+  }
+
+  return (
+    <Pressable
+      style={getFabStyle}
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel="Empty cart"
+      {...(Platform.OS === 'web' ? ({ title: 'Empty cart' } as const) : {})}
+    >
+      <TrashIcon />
+    </Pressable>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <View style={{ width: 22, height: 22, alignItems: 'center', justifyContent: 'center' }}>
+      <View
+        style={{
+          width: 16,
+          height: 14,
+          borderWidth: 2,
+          borderColor: '#fff',
+          borderTopLeftRadius: 3,
+          borderTopRightRadius: 3,
+          borderBottomWidth: 0,
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          top: 3,
+          width: 18,
+          height: 2,
+          backgroundColor: '#fff',
+          borderRadius: 1,
+        }}
+      />
+      <View
+        style={{
+          width: 14,
+          height: 10,
+          backgroundColor: 'rgba(255,255,255,0.25)',
+          borderBottomLeftRadius: 2,
+          borderBottomRightRadius: 2,
+          marginTop: -1,
+        }}
+      />
+      <View style={{ flexDirection: 'row', gap: 3, marginTop: 2 }}>
+        <View style={{ width: 2, height: 5, backgroundColor: '#fff', borderRadius: 1 }} />
+        <View style={{ width: 2, height: 5, backgroundColor: '#fff', borderRadius: 1 }} />
+        <View style={{ width: 2, height: 5, backgroundColor: '#fff', borderRadius: 1 }} />
+      </View>
     </View>
   )
 }

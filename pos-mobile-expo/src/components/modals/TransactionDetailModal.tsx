@@ -11,7 +11,7 @@ import {
 } from 'react-native'
 import type { SalesItemRow, SalesTransactionRow } from '../../types/sales'
 import { colors, spacing } from '../../styles/theme'
-import { computeCartTotals, formatMoney } from '../../utils/vat'
+import { computeCartTotals, formatInteger, formatMoney } from '../../utils/vat'
 
 type Props = {
   visible: boolean
@@ -252,7 +252,7 @@ export default function TransactionDetailModal({
                           #{item.ID} · {item.BARCODE || '-'} · Batch {item.BATCHID || '-'}
                         </Text>
                         <Text style={metaStyle}>
-                          Qty {toNumber(item.QTY)} × {formatMoney(toNumber(item.PRICE))} ={' '}
+                          Qty {formatInteger(toNumber(item.QTY))} × {formatMoney(toNumber(item.PRICE))} ={' '}
                           {formatMoney(toNumber(item.TOTAL))}
                         </Text>
                       </View>

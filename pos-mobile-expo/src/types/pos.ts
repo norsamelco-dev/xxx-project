@@ -11,6 +11,8 @@ export type TerminalLookup = {
   ptu_no: string
   min_number: string
   current_or: number
+  or_start?: number | null
+  or_end?: number | null
   branch: string
   is_active: boolean
 }

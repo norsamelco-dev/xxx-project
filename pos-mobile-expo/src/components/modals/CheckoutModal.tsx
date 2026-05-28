@@ -22,7 +22,7 @@ import { printSalesReceipt } from '../../services/printer/printerService'
 import { colors, spacing } from '../../styles/theme'
 import { mapCheckoutLinesToCartLines, mapCheckoutTotalsToCartTotals } from '../../utils/checkoutReceipt'
 import { alertMessage, confirmAsync } from '../../utils/confirm'
-import { formatMoney } from '../../utils/vat'
+import { formatMoney, parseMoneyInput } from '../../utils/vat'
 import SaleCompleteModal from './SaleCompleteModal'
 
 type CompletedSale = {
@@ -119,17 +119,18 @@ export default function CheckoutModal({ visible, onClose }: Props) {
     return buildPaymentMethod('ewallet', ewalletProvider)
   }, [paymentCategory, cardNetwork, ewalletProvider])
 
-  const change = Math.max(0, (Number(amtTendered) || 0) - totals.grandTotal)
+  const tenderedValue = parseMoneyInput(amtTendered)
+  const change = Math.max(0, (Number.isFinite(tenderedValue) ? tenderedValue : 0) - totals.grandTotal)
 
   const canCompleteCheckout = useMemo(() => {
     if (paymentCategory === 'cash') {
-      return (Number(amtTendered) || 0) >= totals.grandTotal
+      return (Number.isFinite(tenderedValue) ? tenderedValue : 0) >= totals.grandTotal
     }
     if (requiresPaymentReference(paymentCategory)) {
       return isPaymentReferenceValid(paymentRef)
     }
     return true
-  }, [paymentCategory, amtTendered, totals.grandTotal, paymentRef])
+  }, [paymentCategory, tenderedValue, totals.grandTotal, paymentRef])
 
   useEffect(() => {
     if (visible) {
@@ -176,7 +177,9 @@ export default function CheckoutModal({ visible, onClose }: Props) {
 
     const tenderedAmount = usesExactTenderedAmount(paymentCategory)
       ? totals.grandTotal
-      : Number(amtTendered) || 0
+      : Number.isFinite(tenderedValue)
+        ? tenderedValue
+        : 0
 
     if (paymentCategory === 'cash' && tenderedAmount < totals.grandTotal) {
       alertMessage('Checkout', `Amount tendered must be at least ${formatMoney(totals.grandTotal)}.`)

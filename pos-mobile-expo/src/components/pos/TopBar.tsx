@@ -3,7 +3,7 @@ import { colors, spacing } from '../../styles/theme'
 import { alertMessage, confirmAsync } from '../../utils/confirm'
 import { useEffect, useState } from 'react'
 import MenuDropdown from './MenuDropdown'
-import { formatMoney } from '../../utils/vat'
+import { formatInteger, formatMoney } from '../../utils/vat'
 import {
   MENU_RECEIPT_LAYOUT_OPTIONS,
   MENU_TEST_PRINT_LAYOUT_OPTIONS,
@@ -27,6 +27,7 @@ type Props = {
   isClosingSeries?: boolean
   onXReport: () => void
   onZReport: () => void
+  onCashCountSheet: () => void
   onDefaultPrinter: () => void
   onStartingBalance: () => void
   onSalesTransactions: () => void
@@ -42,6 +43,7 @@ type Props = {
   onReregister: () => void
   onLogout: () => void
   onAbout: () => void
+  onTerminalInformation: () => void
 }
 
 export default function TopBar({
@@ -55,6 +57,7 @@ export default function TopBar({
   isClosingSeries = false,
   onXReport,
   onZReport,
+  onCashCountSheet,
   onDefaultPrinter,
   onStartingBalance,
   onSalesTransactions,
@@ -70,6 +73,7 @@ export default function TopBar({
   onReregister,
   onLogout,
   onAbout,
+  onTerminalInformation,
 }: Props) {
   const canCreateSeries = seriesOptions.length === 0
   const canRunReports = !canCreateSeries
@@ -294,6 +298,7 @@ export default function TopBar({
                 id: 'x-report',
                 label: 'X Report',
                 icon: 'X',
+                tag: 'required',
                 disabled: !canRunReports,
                 onPress: onXReport,
               },
@@ -301,8 +306,17 @@ export default function TopBar({
                 id: 'z-report',
                 label: 'Z Report',
                 icon: 'Z',
+                tag: 'required',
                 disabled: !canRunReports,
                 onPress: onZReport,
+              },
+              {
+                id: 'cash-count',
+                label: 'Cash Count Sheet',
+                icon: '₱',
+                tag: 'optional',
+                disabled: !canRunReports,
+                onPress: onCashCountSheet,
               },
             ]}
           />
@@ -318,6 +332,12 @@ export default function TopBar({
                 label: 'About us',
                 icon: 'i',
                 onPress: onAbout,
+              },
+              {
+                id: 'terminal-info',
+                label: 'Terminal Information',
+                icon: 'T',
+                onPress: onTerminalInformation,
               },
             ]}
           />
@@ -451,7 +471,7 @@ export default function TopBar({
                                     }}
                                   >
                                     <Text style={{ color: isActive ? '#0f172a' : '#d1d5db', fontSize: 10, fontWeight: '700' }}>
-                                      Qty Sold {summary.qty_sold}
+                                      Qty Sold {formatInteger(summary.qty_sold)}
                                     </Text>
                                   </View>
                                 </View>

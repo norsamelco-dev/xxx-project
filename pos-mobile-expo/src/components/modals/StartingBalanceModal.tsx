@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ActivityIndicator, Modal, Pressable, Text, TextInput, View } from 'react-native'
 import { getStartingBalance } from '../../services/api/posApi'
 import { colors, spacing } from '../../styles/theme'
+import { formatAmount, parseMoneyInput } from '../../utils/vat'
 
 type Props = {
   visible: boolean
@@ -9,10 +10,6 @@ type Props = {
   isSubmitting?: boolean
   onClose: () => void
   onConfirm: (startingBalance: number) => void
-}
-
-function formatBalance(value: number) {
-  return value.toFixed(2)
 }
 
 export default function StartingBalanceModal({
@@ -43,7 +40,7 @@ export default function StartingBalanceModal({
         }
 
         if (data.starting_balance !== null && Number.isFinite(data.starting_balance)) {
-          setValue(formatBalance(data.starting_balance))
+          setValue(formatAmount(data.starting_balance))
         }
       })
       .catch((fetchError) => {
@@ -138,12 +135,12 @@ export default function StartingBalanceModal({
               }}
               disabled={loading || isSubmitting}
               onPress={() => {
-                const parsed = Number(value)
+                const parsed = parseMoneyInput(value)
                 if (!Number.isFinite(parsed) || parsed < 0) {
                   setError('Starting balance must be a valid non-negative amount.')
                   return
                 }
-                onConfirm(Math.round(parsed * 100) / 100)
+                onConfirm(parsed)
               }}
             >
               <Text style={{ textAlign: 'center', fontWeight: '700', color: '#0f172a' }}>

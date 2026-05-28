@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Modal, Platform, Pressable, Text, View, type PressableStateCallbackType } from 'react-native'
 import { colors, spacing } from '../../styles/theme'
 
+export type MenuDropdownTag = 'required' | 'optional'
+
 export type MenuDropdownItem = {
   id: string
   label: string
   icon?: string
+  tag?: MenuDropdownTag
   disabled?: boolean
   selected?: boolean
   onPress: () => void
@@ -72,6 +75,17 @@ function getItemLabelStyle(item: MenuDropdownItem) {
     return [itemLabelStyle, itemSelectedLabelStyle]
   }
   return itemLabelStyle
+}
+
+function getItemTagStyle(tag: MenuDropdownTag) {
+  if (tag === 'required') {
+    return [itemTagStyle, itemTagRequiredStyle]
+  }
+  return [itemTagStyle, itemTagOptionalStyle]
+}
+
+function getItemTagLabel(tag: MenuDropdownTag) {
+  return tag === 'required' ? 'Required' : 'Optional'
 }
 
 export default function MenuDropdown({ label, menuIcon, items, isOpen, onOpen, onClose }: Props) {
@@ -155,10 +169,22 @@ export default function MenuDropdown({ label, menuIcon, items, isOpen, onOpen, o
                     {item.icon ? (
                       <Text style={[itemIconStyle, item.selected && itemSelectedIconStyle]}>{item.icon}</Text>
                     ) : null}
-                    <Text style={getItemLabelStyle(item)}>
+                    <Text style={[getItemLabelStyle(item), { flex: 1 }]}>
                       {item.selected ? '✓ ' : ''}
                       {item.label}
                     </Text>
+                    {item.tag ? (
+                      <View style={getItemTagStyle(item.tag)}>
+                        <Text
+                          style={[
+                            itemTagTextStyle,
+                            item.tag === 'required' ? itemTagTextRequiredStyle : itemTagTextOptionalStyle,
+                          ]}
+                        >
+                          {getItemTagLabel(item.tag)}
+                        </Text>
+                      </View>
+                    ) : null}
                   </Pressable>
                 ))}
               </View>
@@ -309,4 +335,37 @@ const itemSectionLabelStyle = {
 const itemSelectedLabelStyle = {
   color: '#e0f2fe',
   fontWeight: '700' as const,
+}
+
+const itemTagStyle = {
+  borderRadius: 999,
+  paddingHorizontal: spacing.sm,
+  paddingVertical: 2,
+  borderWidth: 1,
+  marginLeft: spacing.sm,
+}
+
+const itemTagRequiredStyle = {
+  backgroundColor: 'rgba(251, 191, 36, 0.14)',
+  borderColor: colors.warning,
+}
+
+const itemTagOptionalStyle = {
+  backgroundColor: colors.surfaceAlt,
+  borderColor: colors.border,
+}
+
+const itemTagTextStyle = {
+  fontSize: 10,
+  fontWeight: '700' as const,
+  letterSpacing: 0.3,
+  textTransform: 'uppercase' as const,
+}
+
+const itemTagTextRequiredStyle = {
+  color: colors.warning,
+}
+
+const itemTagTextOptionalStyle = {
+  color: colors.textMuted,
 }

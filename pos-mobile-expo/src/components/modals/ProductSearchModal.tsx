@@ -4,7 +4,7 @@ import type { TextInput as TextInputType } from 'react-native'
 import { searchProducts } from '../../services/api/posApi'
 import type { ProductLookup } from '../../types/pos'
 import { colors, spacing } from '../../styles/theme'
-import { formatMoney } from '../../utils/vat'
+import { formatInteger, formatMoney } from '../../utils/vat'
 import { formatLongDate } from '../../utils/date'
 import { getApiBaseUrl } from '../../services/api/client'
 
@@ -53,7 +53,7 @@ function ProductSearchRow({ item, onSelect, onClose }: { item: ProductLookup; on
               {item.brand} · {item.category}
             </Text>
             <Text style={{ color: colors.textMuted, fontSize: 12 }}>
-              {item.unit} · {formatMoney(item.selling_price)} · Qty {item.qty_total ?? 0}
+              {item.unit} · {formatMoney(item.selling_price)} · Qty {formatInteger(item.qty_total ?? 0)}
             </Text>
           </View>
         </View>
