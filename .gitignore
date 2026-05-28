@@ -36,7 +36,6 @@ Thumbs.db
 !.vscode/extensions.json
 
 # Backups
-db_bak/
 proj_bak/
 pos-mobile-expo-git-backup/
 
