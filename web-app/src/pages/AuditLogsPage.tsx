@@ -300,7 +300,7 @@ function AuditLogsPage() {
         {error ? <div className="error-state">{error}</div> : null}
         {success ? <div className="success-state">{success}</div> : null}
 
-        <article className="surface-card surface-card--wide">
+        <article className="surface-card surface-card--wide admin-page-main">
           <div className="audit-card-header">
             <div>
               <p className="admin-breadcrumb">Dashboard / AUDIT LOGS</p>

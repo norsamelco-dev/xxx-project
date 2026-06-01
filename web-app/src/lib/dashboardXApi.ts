@@ -29,6 +29,12 @@ export type SalesTrendPoint = {
   transactions: number
 }
 
+export type DailySalesLastMonth = {
+  start_date: string
+  end_date: string
+  points: SalesTrendPoint[]
+}
+
 export type DamageReportSummary = {
   draftReportsOpen: number
   reportsCreatedInRange: number
@@ -64,6 +70,7 @@ export type DashboardOverviewResponse = {
   overview: DashboardOverviewCards
   alerts: DashboardInventoryAlerts
   salesTrendSnapshot: SalesTrendPoint[]
+  dailySalesLastMonth: DailySalesLastMonth
   damageReports: DamageReportSummary
   topDamageReasons: DamageReasonRow[]
 }
@@ -110,6 +117,7 @@ export type DiscountsAndVoids = {
 export type DashboardSalesResponse = {
   filters: DashboardFilters
   trends: SalesTrendPoint[]
+  dailySalesLastMonth: DailySalesLastMonth
   topProducts: TopProductRow[]
   salesByCategory: SalesByCategoryRow[]
   peakHours: PeakHourRow[]

@@ -1,26 +1,27 @@
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 import { ButtonLabel } from '../../components/ButtonIcon'
+import DashboardApexChart from '../../components/dashboard/DashboardApexChart'
+import { useTheme } from '../../context/useTheme'
 import type { DashboardOverviewResponse } from '../../lib/dashboardXApi'
-import { formatTooltipMoney, toInt, toMoney } from '../../lib/dashboardXUtils'
+import {
+  buildAreaTrendOptions,
+  buildHorizontalBarOptions,
+} from '../../lib/dashboardChartTheme'
+import { formatDashboardDayLabel, formatDashboardDayRange, toInt, toMoney } from '../../lib/dashboardXUtils'
 
 type DashboardXOverviewTabProps = {
   data: DashboardOverviewResponse
 }
 
 function DashboardXOverviewTab({ data }: DashboardXOverviewTabProps) {
-  const { overview, alerts, salesTrendSnapshot } = data
+  const { theme } = useTheme()
+  const colors = theme.colors
+  const { overview, alerts } = data
+  const dailySales = data.dailySalesLastMonth?.points ?? data.salesTrendSnapshot
+  const dailyRangeLabel = data.dailySalesLastMonth?.start_date && data.dailySalesLastMonth?.end_date
+    ? formatDashboardDayRange(data.dailySalesLastMonth.start_date, data.dailySalesLastMonth.end_date)
+    : 'Last 30 days'
   const damageReports = data.damageReports || {
     draftReportsOpen: 0,
     reportsCreatedInRange: 0,
@@ -32,6 +33,39 @@ function DashboardXOverviewTab({ data }: DashboardXOverviewTabProps) {
     syncLogsFailed: 0,
   }
   const topDamageReasons = data.topDamageReasons || []
+
+  const trendCategories = useMemo(
+    () => dailySales.map((row) => formatDashboardDayLabel(row.period)),
+    [dailySales],
+  )
+
+  const trendSeries = useMemo(
+    () => [
+      { name: 'Daily Sales', type: 'area' as const, data: dailySales.map((row) => Number(row.totalSales || 0)) },
+      { name: 'Transactions', type: 'line' as const, data: dailySales.map((row) => Number(row.transactions || 0)) },
+    ],
+    [dailySales],
+  )
+
+  const trendOptions = useMemo(
+    () => buildAreaTrendOptions(colors, trendCategories, { height: 280, dualAxis: true }),
+    [colors, trendCategories],
+  )
+
+  const damageReasonCategories = useMemo(
+    () => topDamageReasons.map((row) => row.reasonLabel),
+    [topDamageReasons],
+  )
+
+  const damageReasonSeries = useMemo(
+    () => [{ name: 'Qty Damaged', data: topDamageReasons.map((row) => Number(row.totalQty || 0)) }],
+    [topDamageReasons],
+  )
+
+  const damageReasonOptions = useMemo(
+    () => buildHorizontalBarOptions(colors, damageReasonCategories, { height: Math.max(220, topDamageReasons.length * 36), dataLabels: true }),
+    [colors, damageReasonCategories, topDamageReasons.length],
+  )
 
   return (
     <>
@@ -145,15 +179,14 @@ function DashboardXOverviewTab({ data }: DashboardXOverviewTabProps) {
         {topDamageReasons.length > 0 ? (
           <div className="dashboardx-chart-card dashboardx-chart-card--compact">
             <h3>Top Damage Reasons</h3>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={topDamageReasons}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="reasonLabel" interval={0} angle={-15} textAnchor="end" height={60} />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
-                <Bar dataKey="totalQty" fill="#f97316" name="Qty Damaged" />
-              </BarChart>
-            </ResponsiveContainer>
+            <DashboardApexChart
+              type="bar"
+              series={damageReasonSeries}
+              options={damageReasonOptions}
+              height={Math.max(220, topDamageReasons.length * 36)}
+              isEmpty={topDamageReasons.length === 0}
+              emptyMessage="No damage reasons in this period."
+            />
           </div>
         ) : null}
       </article>
@@ -161,26 +194,19 @@ function DashboardXOverviewTab({ data }: DashboardXOverviewTabProps) {
       <article className="surface-card surface-card--wide">
         <div className="panel-header">
           <div>
-            <h2>Sales Trend Snapshot</h2>
-            <p>Recent sales activity for the selected filter range (up to 14 periods).</p>
+            <h2>Daily Sales Summary</h2>
+            <p>Daily totals for the last 30 days ({dailyRangeLabel}). Other filters do not affect this chart.</p>
           </div>
         </div>
         <div className="dashboardx-chart-card">
-          {salesTrendSnapshot.length === 0 ? (
-            <div className="empty-state">No sales trend data for the selected range.</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={salesTrendSnapshot}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="period" />
-                <YAxis />
-                <Tooltip formatter={(value) => formatTooltipMoney(value)} />
-                <Legend />
-                <Line type="monotone" dataKey="totalSales" stroke="#0ea5e9" strokeWidth={2} name="Total Sales" />
-                <Line type="monotone" dataKey="transactions" stroke="#f97316" strokeWidth={2} name="Transactions" />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
+          <DashboardApexChart
+            type="area"
+            series={trendSeries}
+            options={trendOptions}
+            height={280}
+            isEmpty={dailySales.length === 0}
+            emptyMessage="No sales recorded in the last 30 days."
+          />
         </div>
       </article>
     </>

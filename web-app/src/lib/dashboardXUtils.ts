@@ -68,6 +68,19 @@ export function formatTooltipMoney(value: unknown) {
   return toMoney(Number(value || 0))
 }
 
+export function formatDashboardDayLabel(period: string) {
+  const date = new Date(`${period}T00:00:00`)
+  if (Number.isNaN(date.getTime())) {
+    return period
+  }
+
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+export function formatDashboardDayRange(startDate: string, endDate: string) {
+  return `${formatDashboardDayLabel(startDate)} – ${formatDashboardDayLabel(endDate)}`
+}
+
 export function buildFilterCacheKey(
   tab: string,
   startDate: string,

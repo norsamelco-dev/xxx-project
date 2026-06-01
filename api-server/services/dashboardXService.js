@@ -387,6 +387,47 @@ function sliceTrendPoints(trends, limit = 14) {
   return trends.slice(-safeLimit);
 }
 
+/** Rolling 30-day window ending today (inclusive). */
+function getLastMonthDailyRange() {
+  const endDate = toDateOnlyText(new Date());
+  const startDate = addDays(endDate, -29);
+  return getRangeBounds(startDate, endDate);
+}
+
+function fillDailyTrendGaps(trends, range) {
+  const trendMap = new Map(
+    (Array.isArray(trends) ? trends : []).map((row) => [String(row.period), row]),
+  );
+  const points = [];
+  let cursor = range.startDate;
+
+  while (cursor <= range.endDate) {
+    const existing = trendMap.get(cursor);
+    points.push(
+      existing || {
+        period: cursor,
+        totalSales: 0,
+        transactions: 0,
+      },
+    );
+    cursor = addDays(cursor, 1);
+  }
+
+  return points;
+}
+
+async function getDailySalesLastMonth() {
+  const range = getLastMonthDailyRange();
+  const trends = await getSalesTrends(range, 'daily');
+  const points = fillDailyTrendGaps(trends, range);
+
+  return {
+    start_date: range.startDate,
+    end_date: range.endDate,
+    points,
+  };
+}
+
 async function getInventorySummary() {
   const pool = getPool();
 
@@ -685,10 +726,10 @@ async function getDashboardOverview({ startDate, endDate, groupBy }) {
   const normalizedGroupBy = normalizeGroupBy(groupBy);
   const range = getRangeBounds(startDate, endDate);
 
-  const [overview, alerts, trends, damageReports] = await Promise.all([
+  const [overview, alerts, dailySalesLastMonth, damageReports] = await Promise.all([
     getOverviewCards(),
     getInventoryAlertCounts(),
-    getSalesTrends(range, normalizedGroupBy),
+    getDailySalesLastMonth(),
     getDamageReportSummary(range).catch(() => ({
       draftReportsOpen: 0,
       reportsCreatedInRange: 0,
@@ -717,7 +758,8 @@ async function getDashboardOverview({ startDate, endDate, groupBy }) {
     },
     overview,
     alerts,
-    salesTrendSnapshot: sliceTrendPoints(trends, 14),
+    salesTrendSnapshot: dailySalesLastMonth.points,
+    dailySalesLastMonth,
     damageReports,
     topDamageReasons,
   };
@@ -727,8 +769,8 @@ async function getDashboardSales({ startDate, endDate, groupBy }) {
   const normalizedGroupBy = normalizeGroupBy(groupBy);
   const range = getRangeBounds(startDate, endDate);
 
-  const [trends, topProducts, salesByCategory, peakHours, discountsAndVoids] = await Promise.all([
-    getSalesTrends(range, normalizedGroupBy),
+  const [dailySalesLastMonth, topProducts, salesByCategory, peakHours, discountsAndVoids] = await Promise.all([
+    getDailySalesLastMonth(),
     getTopProducts(range, 100),
     getSalesByCategory(range),
     getPeakHours(range),
@@ -741,7 +783,8 @@ async function getDashboardSales({ startDate, endDate, groupBy }) {
       end_date: range.endDate,
       group_by: normalizedGroupBy,
     },
-    trends,
+    trends: dailySalesLastMonth.points,
+    dailySalesLastMonth,
     topProducts,
     salesByCategory,
     peakHours,

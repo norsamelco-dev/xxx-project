@@ -58,6 +58,19 @@ button {
   min-height: 100vh;
 }
 
+html:has(.admin-shell),
+body:has(.admin-shell) {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+#app:has(.admin-shell) {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
 a {
   color: inherit;
 }
@@ -65,13 +78,19 @@ a {
 .admin-shell {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
 }
 
 .admin-sidebar {
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 22px;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   padding: 24px 20px;
   background: linear-gradient(180deg, var(--surface-sidebar) 0%, #0f172a 100%);
   color: rgba(255, 255, 255, 0.88);
@@ -127,6 +146,8 @@ a {
   display: grid;
   gap: 18px;
   align-content: start;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar-group-label {
@@ -208,9 +229,25 @@ a {
 }
 
 .admin-canvas {
+  --admin-canvas-pad: 48px;
+  --admin-topbar-block: 0px;
+  --admin-chrome-offset: 280px;
+  --admin-viewport-fill: calc((100dvh - var(--admin-canvas-pad) - var(--admin-topbar-block)) / var(--ui-scale));
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-width: 0;
+  height: calc(100dvh / var(--ui-scale));
+  min-height: 0;
+  max-height: calc(100dvh / var(--ui-scale));
+  overflow: hidden;
   padding: 24px;
   zoom: var(--ui-scale);
+}
+
+.admin-canvas:has(> .admin-topbar) {
+  --admin-topbar-block: 132px;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 @supports not (zoom: 1) {
@@ -223,6 +260,7 @@ a {
 
 .admin-topbar {
   display: flex;
+  flex-shrink: 0;
   justify-content: space-between;
   gap: 20px;
   align-items: flex-start;
@@ -319,7 +357,115 @@ a {
 }
 
 .admin-content {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-page-frame {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  width: 100%;
+  min-height: var(--admin-viewport-fill);
+}
+
+.admin-page-frame > .settings-stack,
+.admin-page-frame > .dashboardx-shell,
+.admin-page-frame > form.settings-stack {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  width: 100%;
+  min-height: var(--admin-viewport-fill);
+  gap: 20px;
+}
+
+.admin-page-frame .settings-stack > .error-state,
+.admin-page-frame .settings-stack > .success-state {
+  flex-shrink: 0;
+}
+
+.admin-page-main,
+.admin-page-frame .settings-stack > .surface-card--wide,
+.admin-page-frame .settings-stack > .inventory-workspace-card,
+.admin-page-frame .settings-stack > article.surface-card,
+.admin-page-frame form.settings-stack > .surface-card--wide {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: var(--admin-viewport-fill);
+}
+
+.admin-page-frame .settings-stack:has(> .error-state, > .success-state) > .surface-card--wide,
+.admin-page-frame .settings-stack:has(> .error-state, > .success-state) > .inventory-workspace-card,
+.admin-page-frame .settings-stack:has(> .error-state, > .success-state) > article.surface-card {
+  min-height: max(16rem, calc(var(--admin-viewport-fill) - 5rem));
+}
+
+.admin-page-frame .dashboardx-shell {
+  flex: 1 1 auto;
+  min-height: var(--admin-viewport-fill);
+}
+
+.admin-page-frame .dashboardx-shell__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: max(16rem, calc(var(--admin-viewport-fill) - var(--admin-chrome-offset, 280px)));
+}
+
+.admin-page-frame .dashboardx-tab-content,
+.admin-page-frame .inventory-workspace-card,
+.admin-page-frame .inventory-tab-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.admin-page-frame .dashboardx-tab-content > .surface-card--wide,
+.admin-page-frame .dashboardx-tab-content > article.surface-card {
+  min-height: max(16rem, calc(var(--admin-viewport-fill) - var(--admin-chrome-offset, 300px)));
+}
+
+.admin-page-frame > .empty-state {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--admin-viewport-fill);
+}
+
+.admin-page-frame .inventory-tab-content > .settings-stack {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.admin-page-frame .inventory-tab-content .settings-stack > .surface-card--wide {
+  flex: 1 1 auto;
+}
+
+.admin-page-frame .surface-card--wide > .empty-state,
+.admin-page-frame .inventory-workspace-card .empty-state,
+.admin-page-frame .surface-card--wide > .audit-table-wrap,
+.admin-page-frame .surface-card--wide > .data-table-wrap {
+  flex: 1 1 auto;
+  min-height: 12rem;
+}
+
+.admin-page-frame .surface-card--wide > .empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .topbar-button {
@@ -395,6 +541,29 @@ a {
   grid-template-columns: minmax(0, 1.5fr) minmax(320px, 0.8fr);
 }
 
+.dashboardx-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.dashboardx-shell__chrome {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  display: grid;
+  gap: 16px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  background: var(--bg);
+  box-shadow: 0 16px 28px rgba(15, 23, 42, 0.06);
+}
+
+.dashboardx-shell__body {
+  display: grid;
+  gap: 0;
+}
+
 .dashboardx-tab-content {
   display: grid;
   gap: 20px;
@@ -455,6 +624,17 @@ a {
   border-radius: 16px;
   background: var(--surface-strong);
   padding: 14px;
+  min-height: 280px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+}
+
+.dashboardx-chart-card--donut {
+  min-height: 300px;
+}
+
+.dashboardx-chart-card--compact {
+  min-height: 240px;
+  margin-bottom: 10px;
 }
 
 .dashboardx-chart-card h3 {
@@ -462,13 +642,26 @@ a {
   font-size: 0.96rem;
 }
 
+.dashboardx-chart-subtitle {
+  margin: -4px 0 12px;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+.dashboardx-kpi-row--inline {
+  margin-top: 0;
+  margin-bottom: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .dashboardx-scroll-chart {
   max-height: 420px;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
-.dashboardx-chart-card--compact {
-  margin-bottom: 10px;
+.dashboardx-scroll-chart .apexcharts-canvas {
+  min-width: 100%;
 }
 
 .dashboardx-kpi-row {
@@ -476,6 +669,11 @@ a {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dashboardx-kpi-row--stacked {
+  margin-top: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .dashboardx-kpi-card {
@@ -1997,7 +2195,8 @@ a {
 }
 
 .settings-stack {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 20px;
 }
 
@@ -2831,6 +3030,19 @@ a {
   overflow: auto;
 }
 
+.admin-content .audit-table-wrap,
+.admin-content .sync-history-table-wrap,
+.admin-content .stock-batch-table-wrap,
+.admin-content .data-table-wrap,
+.admin-content .sales-nested-table-wrap,
+.admin-content .sales-items-wrap,
+.admin-content .damage-report-sync-log-card__table-wrap,
+.admin-content .procurement-items-table-wrap {
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
 .success-state {
   padding: 18px;
   border-radius: 18px;
@@ -3223,6 +3435,17 @@ a {
 .inventory-workspace-card {
   display: grid;
   gap: 14px;
+}
+
+.inventory-tabs-shell .inventory-workspace-card > .audit-card-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  background: var(--surface-strong);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
 }
 
 .inventory-tabs-bar {

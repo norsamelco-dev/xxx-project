@@ -1,18 +1,10 @@
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 import { ButtonLabel } from '../../components/ButtonIcon'
+import DashboardApexChart from '../../components/dashboard/DashboardApexChart'
+import { useTheme } from '../../context/useTheme'
 import type { DashboardDamageReportsResponse } from '../../lib/dashboardXApi'
+import { buildHorizontalBarOptions, buildLineOptions } from '../../lib/dashboardChartTheme'
 import { toInt } from '../../lib/dashboardXUtils'
 
 type DashboardXDamageTabProps = {
@@ -20,7 +12,52 @@ type DashboardXDamageTabProps = {
 }
 
 function DashboardXDamageTab({ data }: DashboardXDamageTabProps) {
+  const { theme } = useTheme()
+  const colors = theme.colors
   const { summary, topReasons, topProducts, syncTrendSnapshot, notes } = data
+
+  const syncCategories = useMemo(
+    () => syncTrendSnapshot.map((row) => row.period),
+    [syncTrendSnapshot],
+  )
+  const syncSeries = useMemo(
+    () => [
+      { name: 'Sync Runs', data: syncTrendSnapshot.map((row) => Number(row.syncCount || 0)) },
+      { name: 'Failed', data: syncTrendSnapshot.map((row) => Number(row.failedCount || 0)) },
+    ],
+    [syncTrendSnapshot],
+  )
+  const syncOptions = useMemo(
+    () => buildLineOptions(colors, syncCategories, { height: 260 }),
+    [colors, syncCategories],
+  )
+
+  const reasonCategories = useMemo(
+    () => topReasons.map((row) => row.reasonLabel),
+    [topReasons],
+  )
+  const reasonSeries = useMemo(
+    () => [{ name: 'Qty Damaged', data: topReasons.map((row) => Number(row.totalQty || 0)) }],
+    [topReasons],
+  )
+  const reasonOptions = useMemo(
+    () => buildHorizontalBarOptions(colors, reasonCategories, { height: 260, dataLabels: true }),
+    [colors, reasonCategories],
+  )
+
+  const productCategories = useMemo(
+    () => topProducts.map((row) => row.productName),
+    [topProducts],
+  )
+  const productSeries = useMemo(
+    () => [{ name: 'Qty Deducted', data: topProducts.map((row) => Number(row.qtyDeducted || 0)) }],
+    [topProducts],
+  )
+  const productChartHeight = Math.max(280, topProducts.length * 32)
+  const productOptions = useMemo(
+    () => buildHorizontalBarOptions(colors, productCategories, { height: productChartHeight, dataLabels: true }),
+    [colors, productCategories, productChartHeight],
+  )
 
   return (
     <>
@@ -81,38 +118,26 @@ function DashboardXDamageTab({ data }: DashboardXDamageTabProps) {
       <div className="dashboardx-grid">
         <div className="dashboardx-chart-card">
           <h3>Sync Activity</h3>
-          {syncTrendSnapshot.length === 0 ? (
-            <div className="empty-state">No sync activity for the selected range.</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={syncTrendSnapshot}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="period" />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="syncCount" stroke="#0ea5e9" strokeWidth={2} name="Sync Runs" />
-                <Line type="monotone" dataKey="failedCount" stroke="#ef4444" strokeWidth={2} name="Failed" />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
+          <DashboardApexChart
+            type="line"
+            series={syncSeries}
+            options={syncOptions}
+            height={260}
+            isEmpty={syncTrendSnapshot.length === 0}
+            emptyMessage="No sync activity for the selected range."
+          />
         </div>
 
         <div className="dashboardx-chart-card">
           <h3>Top Damage Reasons</h3>
-          {topReasons.length === 0 ? (
-            <div className="empty-state">No synced damage reasons in this period.</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={topReasons}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="reasonLabel" interval={0} angle={-20} textAnchor="end" height={70} />
-                <YAxis allowDecimals={false} />
-                <Tooltip />
-                <Bar dataKey="totalQty" fill="#f97316" name="Qty Damaged" />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
+          <DashboardApexChart
+            type="bar"
+            series={reasonSeries}
+            options={reasonOptions}
+            height={260}
+            isEmpty={topReasons.length === 0}
+            emptyMessage="No synced damage reasons in this period."
+          />
         </div>
 
         <div className="dashboardx-chart-card dashboardx-chart-card--wide">
@@ -121,16 +146,13 @@ function DashboardXDamageTab({ data }: DashboardXDamageTabProps) {
             <div className="empty-state">No product deductions logged for this period.</div>
           ) : (
             <div className="dashboardx-scroll-chart">
-              <ResponsiveContainer width="100%" height={Math.max(280, topProducts.length * 32)}>
-                <BarChart data={topProducts} layout="vertical" margin={{ top: 8, right: 16, bottom: 8, left: 16 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" allowDecimals={false} />
-                  <YAxis type="category" dataKey="productName" width={220} interval={0} />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="qtyDeducted" fill="#8b5cf6" name="Qty Deducted" />
-                </BarChart>
-              </ResponsiveContainer>
+              <DashboardApexChart
+                type="bar"
+                series={productSeries}
+                options={productOptions}
+                height={productChartHeight}
+                isEmpty={topProducts.length === 0}
+              />
             </div>
           )}
         </div>

@@ -73,10 +73,54 @@ function AdminShell({ title, description, children, actions, hideTopbar = false 
   const [isDisplaySettingsOpen, setIsDisplaySettingsOpen] = useState(false)
   const [uiScale, setUiScale] = useState(() => parseStoredUiScale(localStorage.getItem(uiScaleStorageKey)))
   const brandNameRef = useRef<HTMLElement | null>(null)
+  const adminCanvasRef = useRef<HTMLElement | null>(null)
+  const adminContentRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     void loadBrand()
   }, [])
+
+  useEffect(() => {
+    const canvas = adminCanvasRef.current
+    const content = adminContentRef.current
+    if (!canvas || !content) {
+      return
+    }
+
+    function syncAdminViewportFill() {
+      window.requestAnimationFrame(() => {
+        const canvasEl = adminCanvasRef.current
+        const contentEl = adminContentRef.current
+        if (!canvasEl || !contentEl) {
+          return
+        }
+
+        const contentHeight = Math.max(0, Math.round(contentEl.clientHeight))
+        canvasEl.style.setProperty('--admin-viewport-fill', `${contentHeight}px`)
+
+        const chrome = contentEl.querySelector('.dashboardx-shell__chrome')
+        const chromeHeight = chrome ? Math.round(chrome.getBoundingClientRect().height) : 0
+        canvasEl.style.setProperty('--admin-chrome-offset', `${chromeHeight}px`)
+      })
+    }
+
+    syncAdminViewportFill()
+
+    const resizeObserver = new ResizeObserver(syncAdminViewportFill)
+    resizeObserver.observe(content)
+
+    const pageFrame = content.querySelector('.admin-page-frame')
+    if (pageFrame) {
+      resizeObserver.observe(pageFrame)
+    }
+
+    window.addEventListener('resize', syncAdminViewportFill)
+
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', syncAdminViewportFill)
+    }
+  }, [hideTopbar, uiScale])
 
   useEffect(() => {
     function updateBrandIconSize() {
@@ -211,7 +255,7 @@ function AdminShell({ title, description, children, actions, hideTopbar = false 
         </div>
       </aside>
 
-      <section className="admin-canvas">
+      <section className="admin-canvas" ref={adminCanvasRef}>
         {!hideTopbar ? (
           <header className="admin-topbar">
             <div>
@@ -237,7 +281,9 @@ function AdminShell({ title, description, children, actions, hideTopbar = false 
           </header>
         ) : null}
 
-        <div className="admin-content">{children}</div>
+        <div className="admin-content" ref={adminContentRef}>
+          <div className="admin-page-frame">{children}</div>
+        </div>
       </section>
 
       {isDisplaySettingsOpen ? (

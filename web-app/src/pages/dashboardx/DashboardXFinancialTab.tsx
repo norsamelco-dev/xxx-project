@@ -1,24 +1,34 @@
 import { useMemo } from 'react'
-import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
+import DashboardApexChart from '../../components/dashboard/DashboardApexChart'
+import { useTheme } from '../../context/useTheme'
 import type { DashboardFinancialResponse } from '../../lib/dashboardXApi'
-import { formatTooltipMoney, toInt, toMoney } from '../../lib/dashboardXUtils'
-
-const PIE_COLORS = ['#0ea5e9', '#f59e0b', '#22c55e', '#ef4444', '#8b5cf6', '#14b8a6']
+import { buildDonutOptions } from '../../lib/dashboardChartTheme'
+import { toInt, toMoney } from '../../lib/dashboardXUtils'
 
 type DashboardXFinancialTabProps = {
   data: DashboardFinancialResponse
 }
 
 function DashboardXFinancialTab({ data }: DashboardXFinancialTabProps) {
+  const { theme } = useTheme()
+  const colors = theme.colors
   const { financial } = data
 
-  const paymentPieData = useMemo(
+  const paymentLabels = useMemo(() => ['Cash', 'Non-Cash'], [])
+  const paymentSeries = useMemo(
     () => [
-      { name: 'Cash', value: Number(financial.cashVsNonCash.cash || 0) },
-      { name: 'Non-Cash', value: Number(financial.cashVsNonCash.nonCash || 0) },
+      Number(financial.cashVsNonCash.cash || 0),
+      Number(financial.cashVsNonCash.nonCash || 0),
     ],
     [financial.cashVsNonCash.cash, financial.cashVsNonCash.nonCash],
   )
+
+  const paymentOptions = useMemo(
+    () => buildDonutOptions(colors, paymentLabels, { height: 280 }),
+    [colors, paymentLabels],
+  )
+
+  const paymentTotal = paymentSeries.reduce((sum, value) => sum + value, 0)
 
   return (
     <article className="surface-card surface-card--wide">
@@ -29,46 +39,47 @@ function DashboardXFinancialTab({ data }: DashboardXFinancialTabProps) {
         </div>
       </div>
 
-      <div className="dashboardx-chart-card dashboardx-chart-card--compact">
-        <ResponsiveContainer width="100%" height={220}>
-          <PieChart>
-            <Pie data={paymentPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label>
-              {paymentPieData.map((entry, index) => (
-                <Cell key={`${entry.name}-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-              ))}
-            </Pie>
-            <Tooltip formatter={(value) => formatTooltipMoney(value)} />
-            <Legend />
-          </PieChart>
-        </ResponsiveContainer>
+      <div className="dashboardx-grid">
+        <div className="dashboardx-chart-card dashboardx-chart-card--donut">
+          <h3>Payment Mix</h3>
+          <DashboardApexChart
+            type="donut"
+            series={paymentSeries}
+            options={paymentOptions}
+            height={280}
+            isEmpty={paymentTotal <= 0}
+            emptyMessage="No payment data for the selected range."
+          />
+        </div>
+
+        <div className="dashboardx-kpi-row dashboardx-kpi-row--stacked">
+          <div className="dashboardx-kpi-card">
+            <span>Gross Sales</span>
+            <strong>{toMoney(financial.netProfit.grossSales)}</strong>
+          </div>
+          <div className="dashboardx-kpi-card">
+            <span>Estimated COGS</span>
+            <strong>{toMoney(financial.netProfit.estimatedCogs)}</strong>
+          </div>
+          <div className="dashboardx-kpi-card">
+            <span>Estimated Net Profit</span>
+            <strong>{toMoney(financial.netProfit.estimatedNetProfit)}</strong>
+          </div>
+          <div className="dashboardx-kpi-card">
+            <span>Tax Collected</span>
+            <strong>{toMoney(financial.taxCollected)}</strong>
+          </div>
+          <div className="dashboardx-kpi-card">
+            <span>Refunds / Returns (Est.)</span>
+            <strong>{toMoney(financial.refundsAndReturns.estimatedAmount)}</strong>
+          </div>
+          <div className="dashboardx-kpi-card">
+            <span>Refunded / Voided Txns</span>
+            <strong>{toInt(financial.refundsAndReturns.estimatedTransactions)}</strong>
+          </div>
+        </div>
       </div>
 
-      <ul className="meta-list meta-list--tight">
-        <li>
-          <strong>Refunds / Returns (Estimated)</strong>
-          {toMoney(financial.refundsAndReturns.estimatedAmount)}
-        </li>
-        <li>
-          <strong>Refunded / Voided Transactions</strong>
-          {toInt(financial.refundsAndReturns.estimatedTransactions)}
-        </li>
-        <li>
-          <strong>Gross Sales</strong>
-          {toMoney(financial.netProfit.grossSales)}
-        </li>
-        <li>
-          <strong>Estimated COGS</strong>
-          {toMoney(financial.netProfit.estimatedCogs)}
-        </li>
-        <li>
-          <strong>Estimated Net Profit</strong>
-          {toMoney(financial.netProfit.estimatedNetProfit)}
-        </li>
-        <li>
-          <strong>Tax Collected</strong>
-          {toMoney(financial.taxCollected)}
-        </li>
-      </ul>
       <p className="dashboardx-note">{financial.netProfit.note}</p>
     </article>
   )

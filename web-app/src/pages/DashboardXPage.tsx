@@ -49,7 +49,7 @@ const DASHBOARD_TABS: DashboardTab[] = [
   {
     key: 'sales',
     label: 'Sales',
-    description: 'Sales trends, top products, category mix, peak hours, and discount/void metrics.',
+    description: 'Daily 30-day sales summary, top products, category mix, peak hours, and discount/void metrics.',
     icon: 'generate',
   },
   {
@@ -245,7 +245,8 @@ function DashboardXPage() {
 
   return (
     <AdminShell title="DashboardX" description="Operational analytics with sales, inventory, and financial views." hideTopbar>
-      <section className="settings-stack inventory-tabs-shell">
+      <section className="dashboardx-shell inventory-tabs-shell">
+        <div className="dashboardx-shell__chrome">
         {error ? <div className="error-state">{error}</div> : null}
 
         <article className="surface-card surface-card--wide inventory-workspace-card">
@@ -351,7 +352,9 @@ function DashboardXPage() {
             </ThemedButton>
           </form>
         </article>
+        </div>
 
+        <div className="dashboardx-shell__body">
         <div className="inventory-tab-content dashboardx-tab-content" role="tabpanel">
           {isTabLoading && !hasTabData ? <div className="empty-state">Loading {activeTabMeta.label} metrics...</div> : null}
 
@@ -376,6 +379,7 @@ function DashboardXPage() {
               <DashboardXDamageTab data={damageData} />
             </Suspense>
           ) : null}
+        </div>
         </div>
       </section>
     </AdminShell>
