@@ -3,6 +3,9 @@ export type SessionUser = {
   username: string
   role: string
   fullName: string
+  branchId?: number
+  branchCode?: string
+  branchName?: string
 }
 
 export type TerminalLookup = {
@@ -14,6 +17,9 @@ export type TerminalLookup = {
   or_start?: number | null
   or_end?: number | null
   branch: string
+  branch_id?: number
+  branch_code?: string
+  branch_name?: string
   is_active: boolean
 }
 

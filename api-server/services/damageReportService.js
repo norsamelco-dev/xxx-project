@@ -204,22 +204,23 @@ async function ensureDamageReportTables(connection) {
   );
 }
 
-async function getReportById(connection, reportId, { forUpdate = false } = {}) {
+async function getReportById(connection, reportId, { forUpdate = false, branchId } = {}) {
   const lockClause = forUpdate ? ' FOR UPDATE' : '';
   const [rows] = await connection.query(
     `SELECT id, report_number, status, remarks,
             created_by_user_id, created_by_username, created_at,
             synced_by_user_id, synced_by_username, synced_at
      FROM ${DAMAGE_REPORTS_TABLE}
-     WHERE id = ?${lockClause}`,
-    [reportId],
+     WHERE id = ?
+       AND branch_id = ?${lockClause}`,
+    [reportId, branchId],
   );
 
   return rows[0] || null;
 }
 
-async function assertDraftReport(connection, reportId) {
-  const report = await getReportById(connection, reportId, { forUpdate: true });
+async function assertDraftReport(connection, reportId, branchId) {
+  const report = await getReportById(connection, reportId, { forUpdate: true, branchId });
 
   if (!report) {
     const error = new Error('Damage report not found.');
@@ -236,33 +237,36 @@ async function assertDraftReport(connection, reportId) {
   return report;
 }
 
-async function buildDraftReportNumber(connection) {
+async function buildDraftReportNumber(connection, branchId) {
   const [rows] = await connection.query(
     `SELECT COALESCE(MAX(CAST(SUBSTRING(report_number, 12) AS UNSIGNED)), 0) AS max_sequence
      FROM ${DAMAGE_REPORTS_TABLE}
-     WHERE report_number LIKE 'DR-DRAFT-%'`,
+     WHERE report_number LIKE 'DR-DRAFT-%'
+       AND branch_id = ?`,
+    [branchId],
   );
 
   const nextSequence = Number(rows[0]?.max_sequence || 0) + 1;
   return `DR-DRAFT-${String(nextSequence).padStart(3, '0')}`;
 }
 
-async function buildFinalReportNumber(connection) {
+async function buildFinalReportNumber(connection, branchId) {
   const year = new Date().getFullYear();
   const prefix = `DR-${year}-`;
 
   const [rows] = await connection.query(
     `SELECT COALESCE(MAX(CAST(SUBSTRING(report_number, ?) AS UNSIGNED)), 0) AS max_sequence
      FROM ${DAMAGE_REPORTS_TABLE}
-     WHERE report_number LIKE ?`,
-    [prefix.length + 1, `${prefix}%`],
+     WHERE report_number LIKE ?
+       AND branch_id = ?`,
+    [prefix.length + 1, `${prefix}%`, branchId],
   );
 
   const nextSequence = Number(rows[0]?.max_sequence || 0) + 1;
   return `${prefix}${String(nextSequence).padStart(3, '0')}`;
 }
 
-async function getProductByLookup(connection, lookup) {
+async function getProductByLookup(connection, lookup, branchId) {
   const normalized = normalizeText(lookup);
 
   if (!normalized) {
@@ -279,16 +283,18 @@ async function getProductByLookup(connection, lookup) {
      FROM products p
      LEFT JOIN product_batches pb
        ON pb.product_barcode = p.product_barcode
+      AND pb.branch_id = p.branch_id
       AND COALESCE(pb.Block, 0) = 0
-     WHERE p.product_barcode = ?
+     WHERE p.branch_id = ?
+       AND (p.product_barcode = ?
         OR p.product_barcode LIKE CONCAT(?, '%')
-        OR p.product_name LIKE CONCAT('%', ?, '%')
+        OR p.product_name LIKE CONCAT('%', ?, '%'))
      GROUP BY p.product_id, p.product_barcode, p.product_name
      ORDER BY
        CASE WHEN p.product_barcode = ? THEN 0 ELSE 1 END,
        p.product_name ASC
      LIMIT 1`,
-    [normalized, normalized, normalized, normalized],
+    [branchId, normalized, normalized, normalized, normalized],
   );
 
   if (!rows.length) {
@@ -321,7 +327,7 @@ function mapDamageReportProductRow(row) {
   };
 }
 
-async function listDamageReportProducts() {
+async function listDamageReportProducts(branchId) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
 
@@ -337,17 +343,20 @@ async function listDamageReportProducts() {
      FROM products p
      LEFT JOIN product_batches pb
        ON pb.product_barcode = p.product_barcode
+      AND pb.branch_id = p.branch_id
       AND COALESCE(pb.Block, 0) = 0
-     WHERE p.product_barcode IS NOT NULL
+     WHERE p.branch_id = ?
+       AND p.product_barcode IS NOT NULL
        AND TRIM(p.product_barcode) <> ''
      GROUP BY p.product_id, p.product_barcode, p.product_name, p.category, p.brand, p.unit, p.product_image_path
      ORDER BY p.product_name ASC, p.product_barcode ASC`,
+    [branchId],
   );
 
   return rows.map(mapDamageReportProductRow);
 }
 
-async function lookupDamageReportProductByBarcode(barcode) {
+async function lookupDamageReportProductByBarcode(barcode, branchId) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
 
@@ -371,10 +380,12 @@ async function lookupDamageReportProductByBarcode(barcode) {
      FROM products p
      LEFT JOIN product_batches pb
        ON pb.product_barcode = p.product_barcode
+      AND pb.branch_id = p.branch_id
       AND COALESCE(pb.Block, 0) = 0
      WHERE p.product_barcode = ?
+       AND p.branch_id = ?
      GROUP BY p.product_id, p.product_barcode, p.product_name, p.category, p.brand, p.unit, p.product_image_path`,
-    [normalized],
+    [normalized, branchId],
   );
 
   if (!rows.length) {
@@ -386,17 +397,18 @@ async function lookupDamageReportProductByBarcode(barcode) {
   return mapDamageReportProductRow(rows[0]);
 }
 
-async function fetchLofoBatches(connection, productBarcode, { forUpdate = false } = {}) {
+async function fetchLofoBatches(connection, productBarcode, branchId, { forUpdate = false } = {}) {
   const lockClause = forUpdate ? ' FOR UPDATE' : '';
 
   const [rows] = await connection.query(
     `SELECT id, batch_id, cost_price, COALESCE(Qty, 0) AS qty
      FROM product_batches
      WHERE product_barcode = ?
+       AND branch_id = ?
        AND COALESCE(Block, 0) = 0
        AND COALESCE(Qty, 0) > 0
      ORDER BY cost_price ASC, id ASC${lockClause}`,
-    [productBarcode],
+    [productBarcode, branchId],
   );
 
   return rows.map((row) => ({
@@ -445,10 +457,10 @@ function allocateLofoFromBatches(batches, qtyDamaged) {
   };
 }
 
-async function buildLinePreview(connection, item) {
+async function buildLinePreview(connection, item, branchId) {
   const barcode = normalizeText(item.product_barcode);
   const qtyDamaged = Number(item.qty_damaged || 0);
-  const batches = await fetchLofoBatches(connection, barcode);
+  const batches = await fetchLofoBatches(connection, barcode, branchId);
   const allocation = allocateLofoFromBatches(batches, qtyDamaged);
 
   return {
@@ -541,12 +553,13 @@ function normalizeBooleanFlag(value, fieldName) {
   throw error;
 }
 
-async function getDamageReasonOptionById(pool, optionId) {
+async function getDamageReasonOptionById(pool, optionId, branchId) {
   const [rows] = await pool.query(
     `SELECT id, reason_code, reason_label, sort_order, is_active
      FROM ${DAMAGE_REASON_OPTIONS_TABLE}
-     WHERE id = ?`,
-    [optionId],
+     WHERE id = ?
+       AND branch_id = ?`,
+    [optionId, branchId],
   );
 
   if (!rows.length) {
@@ -558,7 +571,7 @@ async function getDamageReasonOptionById(pool, optionId) {
   return mapReasonOptionRow(rows[0]);
 }
 
-async function listDamageReasonOptions() {
+async function listDamageReasonOptions(branchId) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
 
@@ -566,26 +579,30 @@ async function listDamageReasonOptions() {
     `SELECT id, reason_code, reason_label, sort_order
      FROM ${DAMAGE_REASON_OPTIONS_TABLE}
      WHERE is_active = 1
+       AND branch_id = ?
      ORDER BY sort_order ASC, reason_label ASC`,
+    [branchId],
   );
 
   return rows;
 }
 
-async function listAllDamageReasonOptions() {
+async function listAllDamageReasonOptions(branchId) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
 
   const [rows] = await pool.query(
     `SELECT id, reason_code, reason_label, sort_order, is_active
      FROM ${DAMAGE_REASON_OPTIONS_TABLE}
+     WHERE branch_id = ?
      ORDER BY sort_order ASC, reason_label ASC`,
+    [branchId],
   );
 
   return rows.map(mapReasonOptionRow);
 }
 
-async function createDamageReasonOption(payload = {}) {
+async function createDamageReasonOption(payload = {}, branchId) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
 
@@ -594,7 +611,9 @@ async function createDamageReasonOption(payload = {}) {
 
   const [maxRows] = await pool.query(
     `SELECT COALESCE(MAX(sort_order), 0) AS max_sort
-     FROM ${DAMAGE_REASON_OPTIONS_TABLE}`,
+     FROM ${DAMAGE_REASON_OPTIONS_TABLE}
+     WHERE branch_id = ?`,
+    [branchId],
   );
 
   const sortOrder = payload.sort_order !== undefined
@@ -607,12 +626,12 @@ async function createDamageReasonOption(payload = {}) {
   try {
     const [result] = await pool.query(
       `INSERT INTO ${DAMAGE_REASON_OPTIONS_TABLE}
-        (reason_code, reason_label, sort_order, is_active)
-       VALUES (?, ?, ?, ?)`,
-      [reasonCode, reasonLabel, sortOrder, resolvedIsActive],
+        (reason_code, reason_label, sort_order, is_active, branch_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      [reasonCode, reasonLabel, sortOrder, resolvedIsActive, branchId],
     );
 
-    return getDamageReasonOptionById(pool, result.insertId);
+    return getDamageReasonOptionById(pool, result.insertId, branchId);
   } catch (insertError) {
     if (insertError.code === 'ER_DUP_ENTRY') {
       const error = new Error(`reason_code "${reasonCode}" already exists.`);
@@ -624,12 +643,12 @@ async function createDamageReasonOption(payload = {}) {
   }
 }
 
-async function updateDamageReasonOption(id, payload = {}) {
+async function updateDamageReasonOption(id, payload = {}, branchId) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
 
   const optionId = normalizeInteger(id, 'option_id', { min: 1 });
-  await getDamageReasonOptionById(pool, optionId);
+  await getDamageReasonOptionById(pool, optionId, branchId);
 
   const updates = [];
   const params = [];
@@ -658,36 +677,38 @@ async function updateDamageReasonOption(id, payload = {}) {
   }
 
   if (!updates.length) {
-    return getDamageReasonOptionById(pool, optionId);
+    return getDamageReasonOptionById(pool, optionId, branchId);
   }
 
-  params.push(optionId);
+  params.push(optionId, branchId);
 
   await pool.query(
     `UPDATE ${DAMAGE_REASON_OPTIONS_TABLE}
      SET ${updates.join(', ')}
-     WHERE id = ?`,
+     WHERE id = ?
+       AND branch_id = ?`,
     params,
   );
 
-  return getDamageReasonOptionById(pool, optionId);
+  return getDamageReasonOptionById(pool, optionId, branchId);
 }
 
-async function deleteDamageReasonOption(id) {
+async function deleteDamageReasonOption(id, branchId) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
 
   const optionId = normalizeInteger(id, 'option_id', { min: 1 });
-  await getDamageReasonOptionById(pool, optionId);
+  await getDamageReasonOptionById(pool, optionId, branchId);
 
   await pool.query(
     `DELETE FROM ${DAMAGE_REASON_OPTIONS_TABLE}
-     WHERE id = ?`,
-    [optionId],
+     WHERE id = ?
+       AND branch_id = ?`,
+    [optionId, branchId],
   );
 }
 
-async function reorderDamageReasonOptions(orderedIds) {
+async function reorderDamageReasonOptions(orderedIds, branchId) {
   if (!Array.isArray(orderedIds) || !orderedIds.length) {
     const error = new Error('ordered_ids must be a non-empty array.');
     error.statusCode = 400;
@@ -708,8 +729,9 @@ async function reorderDamageReasonOptions(orderedIds) {
       await connection.query(
         `UPDATE ${DAMAGE_REASON_OPTIONS_TABLE}
          SET sort_order = ?
-         WHERE id = ?`,
-        [index + 1, ids[index]],
+         WHERE id = ?
+           AND branch_id = ?`,
+        [index + 1, ids[index], branchId],
       );
     }
 
@@ -721,10 +743,10 @@ async function reorderDamageReasonOptions(orderedIds) {
     connection.release();
   }
 
-  return listAllDamageReasonOptions();
+  return listAllDamageReasonOptions(branchId);
 }
 
-async function listDamageReports({ status, search, dateFrom, dateTo } = {}) {
+async function listDamageReports({ branchId, status, search, dateFrom, dateTo } = {}) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
 
@@ -739,8 +761,8 @@ async function listDamageReports({ status, search, dateFrom, dateTo } = {}) {
     throw error;
   }
 
-  const conditions = [];
-  const params = [];
+  const conditions = ['dr.branch_id = ?'];
+  const params = [branchId];
 
   if (normalizedStatus) {
     conditions.push('dr.status = ?');
@@ -803,12 +825,12 @@ async function getDamageReportItems(connection, reportId) {
   return rows.map(mapItemRow);
 }
 
-async function getDamageReport(reportId) {
+async function getDamageReport(reportId, branchId) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
 
   const id = normalizeInteger(reportId, 'report_id', { min: 1 });
-  const report = await getReportById(pool, id);
+  const report = await getReportById(pool, id, { branchId });
 
   if (!report) {
     const error = new Error('Damage report not found.');
@@ -824,7 +846,7 @@ async function getDamageReport(reportId) {
   };
 }
 
-async function createDamageReport(sessionUser) {
+async function createDamageReport(sessionUser, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const identity = getSessionIdentity(sessionUser);
@@ -833,18 +855,18 @@ async function createDamageReport(sessionUser) {
     await ensureDamageReportTables(connection);
     await connection.beginTransaction();
 
-    const reportNumber = await buildDraftReportNumber(connection);
+    const reportNumber = await buildDraftReportNumber(connection, branchId);
 
     const [result] = await connection.query(
       `INSERT INTO ${DAMAGE_REPORTS_TABLE}
-        (report_number, status, created_by_user_id, created_by_username)
-       VALUES (?, 'draft', ?, ?)`,
-      [reportNumber, identity.userId, identity.username],
+        (report_number, status, created_by_user_id, created_by_username, branch_id)
+       VALUES (?, 'draft', ?, ?, ?)`,
+      [reportNumber, identity.userId, identity.username, branchId],
     );
 
     await connection.commit();
 
-    return getDamageReport(result.insertId);
+    return getDamageReport(result.insertId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -853,7 +875,7 @@ async function createDamageReport(sessionUser) {
   }
 }
 
-async function updateDamageReport(reportId, payload = {}) {
+async function updateDamageReport(reportId, payload = {}, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const id = normalizeInteger(reportId, 'report_id', { min: 1 });
@@ -861,19 +883,19 @@ async function updateDamageReport(reportId, payload = {}) {
   try {
     await ensureDamageReportTables(connection);
     await connection.beginTransaction();
-    await assertDraftReport(connection, id);
+    await assertDraftReport(connection, id, branchId);
 
     const remarks = payload.remarks !== undefined ? normalizeText(payload.remarks) : undefined;
 
     if (remarks !== undefined) {
       await connection.query(
-        `UPDATE ${DAMAGE_REPORTS_TABLE} SET remarks = ? WHERE id = ?`,
-        [remarks, id],
+        `UPDATE ${DAMAGE_REPORTS_TABLE} SET remarks = ? WHERE id = ? AND branch_id = ?`,
+        [remarks, id, branchId],
       );
     }
 
     await connection.commit();
-    return getDamageReport(id);
+    return getDamageReport(id, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -882,7 +904,7 @@ async function updateDamageReport(reportId, payload = {}) {
   }
 }
 
-async function deleteDamageReport(reportId) {
+async function deleteDamageReport(reportId, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const id = normalizeInteger(reportId, 'report_id', { min: 1 });
@@ -890,9 +912,9 @@ async function deleteDamageReport(reportId) {
   try {
     await ensureDamageReportTables(connection);
     await connection.beginTransaction();
-    await assertDraftReport(connection, id);
+    await assertDraftReport(connection, id, branchId);
 
-    await connection.query(`DELETE FROM ${DAMAGE_REPORTS_TABLE} WHERE id = ?`, [id]);
+    await connection.query(`DELETE FROM ${DAMAGE_REPORTS_TABLE} WHERE id = ? AND branch_id = ?`, [id, branchId]);
     await connection.commit();
 
     return { deleted: true };
@@ -915,7 +937,7 @@ async function getNextSortOrder(connection, reportId) {
   return Number(rows[0]?.max_sort || 0) + 1;
 }
 
-async function addDamageReportItem(reportId, payload = {}) {
+async function addDamageReportItem(reportId, payload = {}, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const id = normalizeInteger(reportId, 'report_id', { min: 1 });
@@ -923,10 +945,10 @@ async function addDamageReportItem(reportId, payload = {}) {
   try {
     await ensureDamageReportTables(connection);
     await connection.beginTransaction();
-    await assertDraftReport(connection, id);
+    await assertDraftReport(connection, id, branchId);
 
     const lookup = normalizeText(payload.lookup) || normalizeText(payload.product_barcode);
-    const product = await getProductByLookup(connection, lookup);
+    const product = await getProductByLookup(connection, lookup, branchId);
     const qtyDamaged = normalizeInteger(payload.qty_damaged, 'qty_damaged', { min: 1 });
     const damageReason = normalizeText(payload.damage_reason);
 
@@ -959,7 +981,7 @@ async function addDamageReportItem(reportId, payload = {}) {
 
     await connection.commit();
 
-    const report = await getDamageReport(id);
+    const report = await getDamageReport(id, branchId);
     const item = report.items.find((row) => row.id === result.insertId);
     return item;
   } catch (error) {
@@ -970,7 +992,7 @@ async function addDamageReportItem(reportId, payload = {}) {
   }
 }
 
-async function updateDamageReportItem(reportId, itemId, payload = {}) {
+async function updateDamageReportItem(reportId, itemId, payload = {}, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const reportIdValue = normalizeInteger(reportId, 'report_id', { min: 1 });
@@ -979,7 +1001,7 @@ async function updateDamageReportItem(reportId, itemId, payload = {}) {
   try {
     await ensureDamageReportTables(connection);
     await connection.beginTransaction();
-    await assertDraftReport(connection, reportIdValue);
+    await assertDraftReport(connection, reportIdValue, branchId);
 
     const [existingRows] = await connection.query(
       `SELECT id FROM ${DAMAGE_REPORT_ITEMS_TABLE}
@@ -998,7 +1020,7 @@ async function updateDamageReportItem(reportId, itemId, payload = {}) {
 
     if (payload.lookup !== undefined || payload.product_barcode !== undefined) {
       const lookup = normalizeText(payload.lookup) || normalizeText(payload.product_barcode);
-      const product = await getProductByLookup(connection, lookup);
+      const product = await getProductByLookup(connection, lookup, branchId);
       updates.push('product_id = ?', 'product_name = ?', 'sku = ?', 'product_barcode = ?');
       params.push(product.product_id, product.product_name, product.sku, product.product_barcode);
     }
@@ -1042,7 +1064,7 @@ async function updateDamageReportItem(reportId, itemId, payload = {}) {
 
     await connection.commit();
 
-    const report = await getDamageReport(reportIdValue);
+    const report = await getDamageReport(reportIdValue, branchId);
     return report.items.find((row) => row.id === itemIdValue);
   } catch (error) {
     await connection.rollback();
@@ -1052,7 +1074,7 @@ async function updateDamageReportItem(reportId, itemId, payload = {}) {
   }
 }
 
-async function deleteDamageReportItem(reportId, itemId) {
+async function deleteDamageReportItem(reportId, itemId, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const reportIdValue = normalizeInteger(reportId, 'report_id', { min: 1 });
@@ -1061,7 +1083,7 @@ async function deleteDamageReportItem(reportId, itemId) {
   try {
     await ensureDamageReportTables(connection);
     await connection.beginTransaction();
-    await assertDraftReport(connection, reportIdValue);
+    await assertDraftReport(connection, reportIdValue, branchId);
 
     const [result] = await connection.query(
       `DELETE FROM ${DAMAGE_REPORT_ITEMS_TABLE}
@@ -1085,7 +1107,7 @@ async function deleteDamageReportItem(reportId, itemId) {
   }
 }
 
-async function searchDamageReportProducts(query) {
+async function searchDamageReportProducts(query, branchId) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
 
@@ -1105,10 +1127,12 @@ async function searchDamageReportProducts(query) {
      FROM products p
      LEFT JOIN product_batches pb
        ON pb.product_barcode = p.product_barcode
+      AND pb.branch_id = p.branch_id
       AND COALESCE(pb.Block, 0) = 0
-     WHERE p.product_barcode = ?
+     WHERE p.branch_id = ?
+       AND (p.product_barcode = ?
         OR p.product_barcode LIKE CONCAT(?, '%')
-        OR p.product_name LIKE ?
+        OR p.product_name LIKE ?)
      GROUP BY p.product_id, p.product_barcode, p.product_name
      ORDER BY
        CASE WHEN p.product_barcode = ? THEN 0
@@ -1116,7 +1140,7 @@ async function searchDamageReportProducts(query) {
             ELSE 2 END,
        p.product_name ASC
      LIMIT 25`,
-    [normalized, normalized, pattern, normalized, normalized],
+    [branchId, normalized, normalized, pattern, normalized, normalized],
   );
 
   return rows.map((row) => ({
@@ -1128,12 +1152,12 @@ async function searchDamageReportProducts(query) {
   }));
 }
 
-async function getDamageReportSyncPreview(reportId) {
+async function getDamageReportSyncPreview(reportId, branchId) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
 
   const id = normalizeInteger(reportId, 'report_id', { min: 1 });
-  const report = await getReportById(pool, id);
+  const report = await getReportById(pool, id, { branchId });
 
   if (!report) {
     const error = new Error('Damage report not found.');
@@ -1158,7 +1182,7 @@ async function getDamageReportSyncPreview(reportId) {
   const lines = [];
 
   for (const item of items) {
-    lines.push(await buildLinePreview(pool, item));
+    lines.push(await buildLinePreview(pool, item, branchId));
   }
 
   const canSync = lines.every((line) => line.can_sync);
@@ -1185,11 +1209,12 @@ async function insertFailedSyncLog(connection, {
   identity,
   errorSummary,
   warnings,
+  branchId,
 }) {
   const [logResult] = await connection.query(
     `INSERT INTO ${DAMAGE_SYNC_LOGS_TABLE}
-      (damage_report_id, report_number, sync_batch_id, synced_by_user_id, synced_by_username, status, error_summary, warnings_json)
-     VALUES (?, ?, ?, ?, ?, 'failed', ?, ?)`,
+      (damage_report_id, report_number, sync_batch_id, synced_by_user_id, synced_by_username, status, error_summary, warnings_json, branch_id)
+     VALUES (?, ?, ?, ?, ?, 'failed', ?, ?, ?)`,
     [
       reportId,
       reportNumber,
@@ -1198,13 +1223,14 @@ async function insertFailedSyncLog(connection, {
       identity.username,
       errorSummary,
       warnings?.length ? JSON.stringify(warnings) : null,
+      branchId,
     ],
   );
 
   return logResult.insertId;
 }
 
-async function syncDamageReport(reportId, sessionUser) {
+async function syncDamageReport(reportId, sessionUser, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const id = normalizeInteger(reportId, 'report_id', { min: 1 });
@@ -1215,7 +1241,7 @@ async function syncDamageReport(reportId, sessionUser) {
     await ensureDamageReportTables(connection);
     await connection.beginTransaction();
 
-    const report = await assertDraftReport(connection, id);
+    const report = await assertDraftReport(connection, id, branchId);
     const items = await getDamageReportItems(connection, id);
 
     if (!items.length) {
@@ -1227,7 +1253,7 @@ async function syncDamageReport(reportId, sessionUser) {
     const previewLines = [];
 
     for (const item of items) {
-      const batches = await fetchLofoBatches(connection, item.product_barcode, { forUpdate: true });
+      const batches = await fetchLofoBatches(connection, item.product_barcode, branchId, { forUpdate: true });
       const allocation = allocateLofoFromBatches(batches, Number(item.qty_damaged || 0));
       previewLines.push({
         item,
@@ -1255,6 +1281,7 @@ async function syncDamageReport(reportId, sessionUser) {
             identity,
             errorSummary: 'Sync failed due to insufficient stock in one or more batches.',
             warnings,
+            branchId,
           });
         } finally {
           failedLogConnection.release();
@@ -1267,7 +1294,7 @@ async function syncDamageReport(reportId, sessionUser) {
       }
     }
 
-    const finalReportNumber = await buildFinalReportNumber(connection);
+    const finalReportNumber = await buildFinalReportNumber(connection, branchId);
 
     for (const line of previewLines) {
       for (const batchAllocation of line.allocation.allocations) {
@@ -1275,11 +1302,13 @@ async function syncDamageReport(reportId, sessionUser) {
           `UPDATE product_batches
            SET Qty = ?,
                quantity_remaining = GREATEST(0, COALESCE(quantity_remaining, 0) - ?)
-           WHERE id = ?`,
+           WHERE id = ?
+             AND branch_id = ?`,
           [
             batchAllocation.qty_after,
             batchAllocation.qty_deducted,
             batchAllocation.product_batch_id,
+            branchId,
           ],
         );
       }
@@ -1292,15 +1321,16 @@ async function syncDamageReport(reportId, sessionUser) {
            synced_by_user_id = ?,
            synced_by_username = ?,
            synced_at = NOW()
-       WHERE id = ?`,
-      [finalReportNumber, identity.userId, identity.username, id],
+       WHERE id = ?
+         AND branch_id = ?`,
+      [finalReportNumber, identity.userId, identity.username, id, branchId],
     );
 
     const [logResult] = await connection.query(
       `INSERT INTO ${DAMAGE_SYNC_LOGS_TABLE}
-        (damage_report_id, report_number, sync_batch_id, synced_by_user_id, synced_by_username, status)
-       VALUES (?, ?, ?, ?, ?, 'success')`,
-      [id, finalReportNumber, syncBatchId, identity.userId, identity.username],
+        (damage_report_id, report_number, sync_batch_id, synced_by_user_id, synced_by_username, status, branch_id)
+       VALUES (?, ?, ?, ?, ?, 'success', ?)`,
+      [id, finalReportNumber, syncBatchId, identity.userId, identity.username, branchId],
     );
 
     const syncLogId = logResult.insertId;
@@ -1431,6 +1461,7 @@ async function getSyncLogDetail(connection, syncLogId) {
 }
 
 async function listDamageReportSyncLogs({
+  branchId,
   reportId,
   startDate,
   endDate,
@@ -1457,8 +1488,8 @@ async function listDamageReportSyncLogs({
     throw error;
   }
 
-  const conditions = [];
-  const params = [];
+  const conditions = ['dsl.branch_id = ?'];
+  const params = [branchId];
 
   if (reportId) {
     conditions.push('dsl.damage_report_id = ?');
@@ -1533,8 +1564,8 @@ async function listDamageReportSyncLogs({
   };
 }
 
-async function listSyncLogsForReport(reportId) {
-  return listDamageReportSyncLogs({ reportId, limit: 50 });
+async function listSyncLogsForReport(reportId, branchId) {
+  return listDamageReportSyncLogs({ branchId, reportId, limit: 50 });
 }
 
 module.exports = {

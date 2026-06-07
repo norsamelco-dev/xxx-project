@@ -162,7 +162,7 @@ async function ensureStockBatchSyncHistoryTable(connection) {
   }
 }
 
-async function buildDailySyncCode(connection) {
+async function buildDailySyncCode(connection, branchId) {
   const [dateRows] = await connection.query(`SELECT DATE_FORMAT(NOW(), '%Y%m%d') AS day_code`);
   const dayCode = String(dateRows[0]?.day_code || '');
 
@@ -175,15 +175,16 @@ async function buildDailySyncCode(connection) {
   const [sequenceRows] = await connection.query(
     `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(sync_code, '_', -1) AS UNSIGNED)), 0) AS max_sequence
      FROM ${STOCK_BATCH_SYNC_HISTORY_TABLE}
-     WHERE sync_code LIKE ?`,
-    [`${dayCode}_%`],
+     WHERE sync_code LIKE ?
+       AND branch_id = ?`,
+    [`${dayCode}_%`, branchId],
   );
 
   const nextSequence = Number(sequenceRows[0]?.max_sequence || 0) + 1;
   return `${dayCode}_${String(nextSequence).padStart(3, '0')}`;
 }
 
-async function buildBatchId(inputBatchId, productBarcode) {
+async function buildBatchId(inputBatchId, productBarcode, branchId) {
   const normalizedBatchId = normalizeText(inputBatchId);
 
   if (normalizedBatchId) {
@@ -201,9 +202,10 @@ async function buildBatchId(inputBatchId, productBarcode) {
     `SELECT COUNT(DISTINCT batch_id) AS batchCount
      FROM product_batches
      WHERE product_barcode = ?
+       AND branch_id = ?
        AND batch_id IS NOT NULL
        AND TRIM(batch_id) <> ''`,
-    [normalizedBarcode],
+    [normalizedBarcode, branchId],
   );
 
   const count = Number(rows[0]?.batchCount || 0);
@@ -211,7 +213,7 @@ async function buildBatchId(inputBatchId, productBarcode) {
   return `B-${String(nextBatchNumber).padStart(3, '0')}`;
 }
 
-async function listStockBatchProducts() {
+async function listStockBatchProducts(branchId) {
   const [rows] = await getPool().query(
     `SELECT product_id,
             product_barcode,
@@ -221,15 +223,17 @@ async function listStockBatchProducts() {
             product_image_path,
             unit
      FROM products
-     WHERE product_barcode IS NOT NULL
+     WHERE branch_id = ?
+       AND product_barcode IS NOT NULL
        AND TRIM(product_barcode) <> ''
      ORDER BY product_name ASC, product_barcode ASC`,
+    [branchId],
   );
 
   return rows;
 }
 
-async function findStockBatchProductByBarcode(barcode) {
+async function findStockBatchProductByBarcode(barcode, branchId) {
   const normalizedBarcode = normalizeText(barcode);
 
   if (!normalizedBarcode) {
@@ -246,8 +250,9 @@ async function findStockBatchProductByBarcode(barcode) {
             unit
      FROM products
      WHERE product_barcode = ?
+       AND branch_id = ?
      LIMIT 1`,
-    [normalizedBarcode],
+    [normalizedBarcode, branchId],
   );
 
   return rows[0] || null;
@@ -280,7 +285,7 @@ async function resolveTemplateTableName() {
   return rows[0].TABLE_NAME;
 }
 
-async function createStockBatchTemplate(payload, sessionUser) {
+async function createStockBatchTemplate(payload, sessionUser, branchId) {
   const templateTableName = await resolveTemplateTableName();
   const barcode = normalizeText(payload.barcode);
   const qty = normalizeInteger(payload.qty, 'Quantity');
@@ -294,7 +299,7 @@ async function createStockBatchTemplate(payload, sessionUser) {
     throw error;
   }
 
-  const product = await findStockBatchProductByBarcode(barcode);
+  const product = await findStockBatchProductByBarcode(barcode, branchId);
 
   if (!product) {
     const error = new Error('Selected product was not found. Please add the product first.');
@@ -302,14 +307,14 @@ async function createStockBatchTemplate(payload, sessionUser) {
     throw error;
   }
 
-  const batchId = await buildBatchId(payload.batchId, product.product_barcode);
+  const batchId = await buildBatchId(payload.batchId, product.product_barcode, branchId);
 
   const userId = normalizeText(sessionUser?.userId);
 
   const [result] = await getPool().query(
     `INSERT INTO ${templateTableName}
-      (BatchID, CATEGORY, BARCODE, DESCRIPTION, BRAND, UNIT, QTY, COSTPRICE, SELLINGPRICE, EXPIRATION, USERID)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (BatchID, CATEGORY, BARCODE, DESCRIPTION, BRAND, UNIT, QTY, COSTPRICE, SELLINGPRICE, EXPIRATION, USERID, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       batchId,
       normalizeText(product.category),
@@ -322,6 +327,7 @@ async function createStockBatchTemplate(payload, sessionUser) {
       sellingPrice,
       expiration,
       userId,
+      branchId,
     ],
   );
 
@@ -336,6 +342,7 @@ async function createStockBatchTemplate(payload, sessionUser) {
               SELECT p.product_image_path
               FROM products p
               WHERE p.product_barcode = ${templateTableName}.BARCODE
+                AND p.branch_id = ?
               LIMIT 1
             ) AS PRODUCT_IMAGE_PATH,
             UNIT,
@@ -346,14 +353,15 @@ async function createStockBatchTemplate(payload, sessionUser) {
             USERID
                FROM ${templateTableName}
      WHERE ID = ?
+       AND branch_id = ?
      LIMIT 1`,
-    [result.insertId],
+    [branchId, result.insertId, branchId],
   );
 
   return rows[0] || null;
 }
 
-async function createStockBatchTemplateByBarcode(barcode, sessionUser, options = {}) {
+async function createStockBatchTemplateByBarcode(barcode, sessionUser, options = {}, branchId) {
   const templateTableName = await resolveTemplateTableName();
   const normalizedBarcode = normalizeText(barcode);
   const incrementQty = 1;
@@ -365,7 +373,7 @@ async function createStockBatchTemplateByBarcode(barcode, sessionUser, options =
     throw error;
   }
 
-  const product = await findStockBatchProductByBarcode(normalizedBarcode);
+  const product = await findStockBatchProductByBarcode(normalizedBarcode, branchId);
 
   if (!product) {
     const error = new Error('No matching product found for this barcode. Please add it to Products first.');
@@ -373,16 +381,17 @@ async function createStockBatchTemplateByBarcode(barcode, sessionUser, options =
     throw error;
   }
 
-  const batchId = await buildBatchId(batchIdInput, product.product_barcode);
+  const batchId = await buildBatchId(batchIdInput, product.product_barcode, branchId);
   const userId = normalizeText(sessionUser?.userId);
 
   const [existingRows] = await getPool().query(
     `SELECT ID, QTY
      FROM ${templateTableName}
      WHERE BARCODE = ?
+       AND branch_id = ?
      ORDER BY ID DESC
      LIMIT 1`,
-    [product.product_barcode],
+    [product.product_barcode, branchId],
   );
 
   const existing = existingRows[0] || null;
@@ -392,8 +401,9 @@ async function createStockBatchTemplateByBarcode(barcode, sessionUser, options =
       `UPDATE ${templateTableName}
        SET QTY = COALESCE(QTY, 0) + ?,
            USERID = COALESCE(?, USERID)
-       WHERE ID = ?`,
-      [incrementQty, userId, existing.ID],
+       WHERE ID = ?
+         AND branch_id = ?`,
+      [incrementQty, userId, existing.ID, branchId],
     );
 
     const [updatedRows] = await getPool().query(
@@ -407,6 +417,7 @@ async function createStockBatchTemplateByBarcode(barcode, sessionUser, options =
                 SELECT p.product_image_path
                 FROM products p
                 WHERE p.product_barcode = ${templateTableName}.BARCODE
+                  AND p.branch_id = ?
                 LIMIT 1
               ) AS PRODUCT_IMAGE_PATH,
               UNIT,
@@ -417,8 +428,9 @@ async function createStockBatchTemplateByBarcode(barcode, sessionUser, options =
               USERID
        FROM ${templateTableName}
        WHERE ID = ?
+         AND branch_id = ?
        LIMIT 1`,
-      [existing.ID],
+      [branchId, existing.ID, branchId],
     );
 
     return {
@@ -451,8 +463,8 @@ async function createStockBatchTemplateByBarcode(barcode, sessionUser, options =
 
   const [result] = await getPool().query(
     `INSERT INTO ${templateTableName}
-      (BatchID, CATEGORY, BARCODE, DESCRIPTION, BRAND, UNIT, QTY, COSTPRICE, SELLINGPRICE, EXPIRATION, USERID)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (BatchID, CATEGORY, BARCODE, DESCRIPTION, BRAND, UNIT, QTY, COSTPRICE, SELLINGPRICE, EXPIRATION, USERID, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       batchId,
       normalizeText(product.category),
@@ -465,6 +477,7 @@ async function createStockBatchTemplateByBarcode(barcode, sessionUser, options =
       sellingPrice,
       expiration,
       userId,
+      branchId,
     ],
   );
 
@@ -479,6 +492,7 @@ async function createStockBatchTemplateByBarcode(barcode, sessionUser, options =
               SELECT p.product_image_path
               FROM products p
               WHERE p.product_barcode = ${templateTableName}.BARCODE
+                AND p.branch_id = ?
               LIMIT 1
             ) AS PRODUCT_IMAGE_PATH,
             UNIT,
@@ -489,8 +503,9 @@ async function createStockBatchTemplateByBarcode(barcode, sessionUser, options =
             USERID
      FROM ${templateTableName}
      WHERE ID = ?
+       AND branch_id = ?
      LIMIT 1`,
-    [result.insertId],
+    [branchId, result.insertId, branchId],
   );
 
   return {
@@ -499,7 +514,7 @@ async function createStockBatchTemplateByBarcode(barcode, sessionUser, options =
   };
 }
 
-async function listStockBatchTemplates(limit = 100) {
+async function listStockBatchTemplates(branchId, limit = 100) {
   const templateTableName = await resolveTemplateTableName();
   const normalizedLimit = Number(limit);
   const safeLimit = Number.isInteger(normalizedLimit)
@@ -517,6 +532,7 @@ async function listStockBatchTemplates(limit = 100) {
               SELECT p.product_image_path
               FROM products p
               WHERE p.product_barcode = ${templateTableName}.BARCODE
+                AND p.branch_id = ?
               LIMIT 1
             ) AS PRODUCT_IMAGE_PATH,
             UNIT,
@@ -526,14 +542,16 @@ async function listStockBatchTemplates(limit = 100) {
             EXPIRATION,
             USERID
      FROM ${templateTableName}
+     WHERE branch_id = ?
      ORDER BY ID DESC
      LIMIT ${safeLimit}`,
+    [branchId, branchId],
   );
 
   return rows;
 }
 
-async function getStockBatchSyncPreview() {
+async function getStockBatchSyncPreview(branchId) {
   const templateTableName = await resolveTemplateTableName();
 
   const [rows] = await getPool().query(
@@ -544,13 +562,16 @@ async function getStockBatchSyncPreview() {
               SELECT SUM(COALESCE(pb.Qty, 0))
               FROM product_batches pb
               WHERE pb.product_barcode = t.BARCODE
+                AND pb.branch_id = ?
             ), 0) AS before_qty
      FROM ${templateTableName} t
-     WHERE t.BARCODE IS NOT NULL
+     WHERE t.branch_id = ?
+       AND t.BARCODE IS NOT NULL
        AND TRIM(t.BARCODE) <> ''
        AND COALESCE(t.QTY, 0) >= 1
      GROUP BY t.BARCODE
      ORDER BY MAX(t.DESCRIPTION) ASC, t.BARCODE ASC`,
+    [branchId, branchId],
   );
 
   return rows.map((row) => {
@@ -567,7 +588,7 @@ async function getStockBatchSyncPreview() {
   });
 }
 
-async function syncStockBatchTemplateToInventory(sessionUser = null) {
+async function syncStockBatchTemplateToInventory(sessionUser = null, branchId) {
   const templateTableName = await resolveTemplateTableName();
   const connection = await getPool().getConnection();
 
@@ -587,11 +608,13 @@ async function syncStockBatchTemplateToInventory(sessionUser = null) {
               t.USERID,
               COALESCE(p.rop, 0) AS rop
        FROM ${templateTableName} t
-       LEFT JOIN products p ON p.product_barcode = t.BARCODE
-       WHERE t.BARCODE IS NOT NULL
+       LEFT JOIN products p ON p.product_barcode = t.BARCODE AND p.branch_id = t.branch_id
+       WHERE t.branch_id = ?
+         AND t.BARCODE IS NOT NULL
          AND TRIM(t.BARCODE) <> ''
          AND COALESCE(t.QTY, 0) >= 1
        ORDER BY t.ID ASC`,
+      [branchId],
     );
 
     if (templateRows.length === 0) {
@@ -606,7 +629,7 @@ async function syncStockBatchTemplateToInventory(sessionUser = null) {
     const syncUserId = normalizeText(sessionUser?.userId);
     const syncUsername = normalizeText(sessionUser?.username) || normalizeText(sessionUser?.fullName);
     const syncBatchId = randomUUID();
-    const syncCode = await buildDailySyncCode(connection);
+    const syncCode = await buildDailySyncCode(connection, branchId);
     const syncedIds = [];
     const syncedBarcodes = new Set();
 
@@ -623,8 +646,9 @@ async function syncStockBatchTemplateToInventory(sessionUser = null) {
       const [qtyRows] = await connection.query(
         `SELECT COALESCE(SUM(COALESCE(pb.Qty, 0)), 0) AS before_qty
          FROM product_batches pb
-         WHERE pb.product_barcode = ?`,
-        [barcode],
+         WHERE pb.product_barcode = ?
+           AND pb.branch_id = ?`,
+        [barcode, branchId],
       );
 
       const beforeQty = Number(qtyRows[0]?.before_qty || 0);
@@ -632,8 +656,8 @@ async function syncStockBatchTemplateToInventory(sessionUser = null) {
 
       await connection.query(
         `INSERT INTO product_batches
-          (batch_id, batch_date, product_barcode, Qty, cost_price, selling_price, quantity_remaining, reoder_point, ExpiryDate, UserID, Block)
-         VALUES (?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+          (batch_id, batch_date, product_barcode, Qty, cost_price, selling_price, quantity_remaining, reoder_point, ExpiryDate, UserID, Block, branch_id)
+         VALUES (?, CURDATE(), ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
         [
           normalizeText(row.BatchID),
           barcode,
@@ -644,13 +668,14 @@ async function syncStockBatchTemplateToInventory(sessionUser = null) {
           Number(row.rop || 0),
           row.EXPIRATION || null,
           userId,
+          branchId,
         ],
       );
 
       await connection.query(
         `INSERT INTO ${STOCK_BATCH_SYNC_HISTORY_TABLE}
-          (sync_batch_id, sync_code, user_id, username, product_barcode, product_name, batch_id, qty_before, qty_added, qty_after, cost_price, selling_price, expiration_date, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'batch_sync')`,
+          (sync_batch_id, sync_code, user_id, username, product_barcode, product_name, batch_id, qty_before, qty_added, qty_after, cost_price, selling_price, expiration_date, source, branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'batch_sync', ?)`,
         [
           syncBatchId,
           syncCode,
@@ -665,6 +690,7 @@ async function syncStockBatchTemplateToInventory(sessionUser = null) {
           Number(row.COSTPRICE || 0),
           Number(row.SELLINGPRICE || 0),
           row.EXPIRATION || null,
+          branchId,
         ],
       );
 
@@ -676,8 +702,9 @@ async function syncStockBatchTemplateToInventory(sessionUser = null) {
       const placeholders = syncedIds.map(() => '?').join(', ');
       await connection.query(
         `DELETE FROM ${templateTableName}
-         WHERE ID IN (${placeholders})`,
-        syncedIds,
+         WHERE ID IN (${placeholders})
+           AND branch_id = ?`,
+        [...syncedIds, branchId],
       );
     }
 
@@ -697,7 +724,7 @@ async function syncStockBatchTemplateToInventory(sessionUser = null) {
   }
 }
 
-async function listStockBatchSyncHistory({ startDate, endDate, search, productBarcode, limit } = {}) {
+async function listStockBatchSyncHistory({ branchId, startDate, endDate, search, productBarcode, limit } = {}) {
   const normalizedStartDate = normalizeDateFilter(startDate, 'start_date');
   const normalizedEndDate = normalizeDateFilter(endDate, 'end_date');
 
@@ -716,8 +743,8 @@ async function listStockBatchSyncHistory({ startDate, endDate, search, productBa
 
   await ensureStockBatchSyncHistoryTable(getPool());
 
-  const whereClauses = [];
-  const params = [];
+  const whereClauses = ['branch_id = ?'];
+  const params = [branchId];
 
   if (normalizedStartDate) {
     whereClauses.push('DATE(sync_timestamp) >= ?');
@@ -778,7 +805,7 @@ async function listStockBatchSyncHistory({ startDate, endDate, search, productBa
   };
 }
 
-async function deleteStockBatchTemplateRowById(id) {
+async function deleteStockBatchTemplateRowById(id, branchId) {
   const templateTableName = await resolveTemplateTableName();
   const numericId = Number(id);
 
@@ -790,14 +817,15 @@ async function deleteStockBatchTemplateRowById(id) {
 
   const [result] = await getPool().query(
     `DELETE FROM ${templateTableName}
-     WHERE ID = ?`,
-    [numericId],
+     WHERE ID = ?
+       AND branch_id = ?`,
+    [numericId, branchId],
   );
 
   return result.affectedRows > 0;
 }
 
-async function updateStockBatchTemplateRowById(id, payload = {}, sessionUser = null) {
+async function updateStockBatchTemplateRowById(id, payload = {}, sessionUser = null, branchId) {
   const templateTableName = await resolveTemplateTableName();
   const numericId = Number(id);
 
@@ -820,8 +848,9 @@ async function updateStockBatchTemplateRowById(id, payload = {}, sessionUser = n
          SELLINGPRICE = ?,
          EXPIRATION = ?,
          USERID = COALESCE(?, USERID)
-     WHERE ID = ?`,
-    [qty, costPrice, sellingPrice, expiration, userId, numericId],
+     WHERE ID = ?
+       AND branch_id = ?`,
+    [qty, costPrice, sellingPrice, expiration, userId, numericId, branchId],
   );
 
   if (result.affectedRows === 0) {
@@ -839,6 +868,7 @@ async function updateStockBatchTemplateRowById(id, payload = {}, sessionUser = n
               SELECT p.product_image_path
               FROM products p
               WHERE p.product_barcode = ${templateTableName}.BARCODE
+                AND p.branch_id = ?
               LIMIT 1
             ) AS PRODUCT_IMAGE_PATH,
             UNIT,
@@ -849,8 +879,9 @@ async function updateStockBatchTemplateRowById(id, payload = {}, sessionUser = n
             USERID
      FROM ${templateTableName}
      WHERE ID = ?
+       AND branch_id = ?
      LIMIT 1`,
-    [numericId],
+    [branchId, numericId, branchId],
   );
 
   return rows[0] || null;

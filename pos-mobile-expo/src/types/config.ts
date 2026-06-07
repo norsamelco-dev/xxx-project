@@ -4,6 +4,9 @@ import type { ThemeId } from '../styles/themes'
 export type PosConfig = {
   terminal_name: string
   branch: string
+  branch_id?: number
+  branch_code?: string
+  branch_name?: string
   serial_no: string
   ptu_no: string
   min_number: string

@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const requireAuth = require('../middleware/requireAuth');
+const requireBranchContext = require('../middleware/requireBranchContext');
 const { findUserById, passwordsMatch } = require('../services/userService');
 const {
   listProducts,
@@ -34,14 +35,16 @@ const upload = multer({
 });
 
 router.use(requireAuth);
+router.use(requireBranchContext);
 
-router.get('/', async (_request, response) => {
+router.get('/', async (request, response) => {
   try {
+    const branchId = request.branchId;
     const [data, categories, brands, units] = await Promise.all([
-      listProducts(),
-      listCategories(),
-      listBrands(),
-      listUnits(),
+      listProducts(branchId),
+      listCategories(branchId),
+      listBrands(branchId),
+      listUnits(branchId),
     ]);
 
     response.json({
@@ -69,7 +72,7 @@ router.get('/barcode-exists', async (request, response) => {
       });
     }
 
-    const existingProduct = await findProductByBarcode(barcode, normalizedExcludeId);
+    const existingProduct = await findProductByBarcode(barcode, request.branchId, normalizedExcludeId);
 
     response.json({
       exists: Boolean(existingProduct),
@@ -83,7 +86,7 @@ router.get('/barcode-exists', async (request, response) => {
 
 router.post('/', upload.single('product_image'), async (request, response) => {
   try {
-    const data = await createProduct(request.body || {}, request.file || null);
+    const data = await createProduct(request.branchId, request.body || {}, request.file || null);
     response.status(201).json({
       data,
       message: 'Product created successfully.',
@@ -113,7 +116,7 @@ router.put('/:id', upload.single('product_image'), async (request, response) => 
       });
     }
 
-    const data = await updateProduct(id, request.body || {}, request.file || null);
+    const data = await updateProduct(request.branchId, id, request.body || {}, request.file || null);
 
     if (!data) {
       return response.status(404).json({
@@ -172,7 +175,7 @@ router.delete('/:id', async (request, response) => {
       });
     }
 
-    const deleted = await deleteProduct(id);
+    const deleted = await deleteProduct(request.branchId, id);
 
     if (!deleted) {
       return response.status(404).json({

@@ -6,7 +6,7 @@ import type { SessionUser } from '../types/pos'
 type AuthContextValue = {
   user: SessionUser | null
   isLoading: boolean
-  login: (username: string, password: string) => Promise<void>
+  login: (username: string, password: string, machineName?: string) => Promise<void>
   logout: () => Promise<void>
 }
 
@@ -27,11 +27,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const login = useCallback(async (username: string, password: string) => {
+  const login = useCallback(async (username: string, password: string, machineName?: string) => {
     setIsLoading(true)
 
     try {
-      const result = await loginApi(username, password)
+      const result = await loginApi(username, password, machineName)
 
       if (!result.token) {
         throw new Error('Mobile token was not returned by the server.')

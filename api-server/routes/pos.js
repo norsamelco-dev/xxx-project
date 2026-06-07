@@ -1,5 +1,6 @@
 const express = require('express');
 const requirePosAuth = require('../middleware/requirePosAuth');
+const requireBranchContext = require('../middleware/requireBranchContext');
 const {
   lookupTerminal,
   lookupProductByBarcode,
@@ -34,7 +35,7 @@ const router = express.Router();
 
 router.get('/terminals/lookup', async (request, response) => {
   try {
-    const data = await lookupTerminal(request.query.machine_name);
+    const data = await lookupTerminal(request.query.machine_name, request.query.branch_code);
     return response.json({ data });
   } catch (error) {
     return response.status(error.statusCode || 500).json({ error: error.message });
@@ -42,10 +43,11 @@ router.get('/terminals/lookup', async (request, response) => {
 });
 
 router.use(requirePosAuth);
+router.use(requireBranchContext);
 
 router.get('/products/lookup', async (request, response) => {
   try {
-    const data = await lookupProductByBarcode(request.query.barcode);
+    const data = await lookupProductByBarcode(request.query.barcode, request.posUser);
 
     if (!data) {
       return response.status(404).json({ error: 'Product not found.' });
@@ -59,7 +61,7 @@ router.get('/products/lookup', async (request, response) => {
 
 router.get('/products/search', async (request, response) => {
   try {
-    const data = await searchProducts(request.query.q);
+    const data = await searchProducts(request.query.q, request.posUser);
     return response.json({ data });
   } catch (error) {
     return response.status(error.statusCode || 500).json({ error: error.message });
@@ -210,7 +212,10 @@ router.post('/cart/clear', async (request, response) => {
 });
 
 async function resolvePosSalesAccess(request) {
-  const terminal = await lookupTerminal(request.query.machine_name || request.body?.machine_name);
+  const terminal = await lookupTerminal(
+    request.query.machine_name || request.body?.machine_name,
+    request.branch?.branch_code,
+  );
 
   return {
     machineName: terminal.terminal_name,

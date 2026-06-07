@@ -46,12 +46,12 @@ function resolveDateRange(startDate, endDate) {
   };
 }
 
-async function listAuditLogs({ startDate, endDate, username }) {
+async function listAuditLogs({ branchId, startDate, endDate, username }) {
   const range = resolveDateRange(startDate, endDate);
   const normalizedUsername = normalizeUsername(username);
 
-  const whereClauses = ['DATE(created_at) BETWEEN ? AND ?'];
-  const params = [range.startDate, range.endDate];
+  const whereClauses = ['branch_id = ?', 'DATE(created_at) BETWEEN ? AND ?'];
+  const params = [branchId, range.startDate, range.endDate];
 
   if (normalizedUsername) {
     whereClauses.push('username = ?');
@@ -74,13 +74,15 @@ async function listAuditLogs({ startDate, endDate, username }) {
   };
 }
 
-async function listAuditLogUsers() {
+async function listAuditLogUsers(branchId) {
   const [rows] = await getPool().query(
     `SELECT user_id, username
      FROM audit_logs
-     WHERE username IS NOT NULL AND TRIM(username) <> ''
+     WHERE branch_id = ?
+       AND username IS NOT NULL AND TRIM(username) <> ''
      GROUP BY user_id, username
      ORDER BY username ASC`,
+    [branchId],
   );
 
   return rows;

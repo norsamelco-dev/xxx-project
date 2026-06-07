@@ -6,6 +6,16 @@ const DEFAULT_VAT_RATE = 0.12;
 const INSUFFICIENT_STOCK_MESSAGE =
   'Insufficient stock. Maximum available qty for this product has been reached.';
 
+function branchIdFromUser(user) {
+  const branchId = Number(user?.branchId);
+  if (!Number.isInteger(branchId) || branchId <= 0) {
+    const error = new Error('Branch context is required.');
+    error.statusCode = 403;
+    throw error;
+  }
+  return branchId;
+}
+
 function normalizeText(value) {
   if (value === undefined || value === null) {
     return null;
@@ -30,9 +40,9 @@ function todayCompactDate() {
   return todayDateString().replace(/-/g, '');
 }
 
-async function getVatRate() {
+async function getVatRate(branchId) {
   try {
-    const heading = await getReceiptHeading();
+    const heading = await getReceiptHeading(branchId);
     const rate = Number(heading?.vat_rate);
     return Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_VAT_RATE;
   } catch {
@@ -62,7 +72,7 @@ function computeSaleTotals(lineTotals, discountRate, vatRate) {
   };
 }
 
-async function lookupTerminal(machineName) {
+async function lookupTerminal(machineName, branchCode) {
   const normalized = normalizeText(machineName);
 
   if (!normalized) {
@@ -71,18 +81,31 @@ async function lookupTerminal(machineName) {
     throw error;
   }
 
-  const [rows] = await getPool().query(
-    `SELECT ID, machine_name, serial_number, min_number, ptu_number,
-            or_start, or_end, current_or, valid_start, valid_end, is_active
-     FROM terminals_a
-     WHERE machine_name = ?
-     LIMIT 1`,
-    [normalized],
-  );
+  const normalizedBranchCode = normalizeText(branchCode);
+  let query = `SELECT t.*, b.branch_id, b.branch_code, b.branch_name, b.address
+     FROM terminals_a t
+     INNER JOIN branches b ON b.branch_id = t.branch_id
+     WHERE t.machine_name = ?`;
+  const params = [normalized];
+
+  if (normalizedBranchCode) {
+    query += ' AND b.branch_code = ?';
+    params.push(normalizedBranchCode);
+  }
+
+  const [rows] = await getPool().query(query, params);
 
   if (!rows.length) {
     const error = new Error('Terminal not found. Please check terminal name.');
     error.statusCode = 404;
+    throw error;
+  }
+
+  if (!normalizedBranchCode && rows.length > 1) {
+    const error = new Error(
+      'Multiple terminals match this name. Provide branch_code to identify the terminal.',
+    );
+    error.statusCode = 409;
     throw error;
   }
 
@@ -94,14 +117,7 @@ async function lookupTerminal(machineName) {
     throw error;
   }
 
-  let branch = '';
-
-  try {
-    const heading = await getReceiptHeading();
-    branch = heading?.busi_addr || '';
-  } catch {
-    branch = '';
-  }
+  const branchDisplay = normalizeText(terminal.address) || normalizeText(terminal.branch_name) || '';
 
   return {
     terminal_name: terminal.machine_name,
@@ -111,12 +127,16 @@ async function lookupTerminal(machineName) {
     current_or: Number(terminal.current_or) || 1,
     or_start: terminal.or_start,
     or_end: terminal.or_end,
-    branch,
+    branch: branchDisplay,
+    branch_id: terminal.branch_id,
+    branch_code: terminal.branch_code,
+    branch_name: terminal.branch_name,
     is_active: Boolean(terminal.is_active),
   };
 }
 
-async function lookupProductByBarcode(barcode) {
+async function lookupProductByBarcode(barcode, user) {
+  const branchId = branchIdFromUser(user);
   const normalized = normalizeText(barcode);
 
   if (!normalized) {
@@ -129,8 +149,9 @@ async function lookupProductByBarcode(barcode) {
     `SELECT p.product_id, p.product_barcode, p.product_name, p.category, p.brand, p.product_image_path, p.unit
      FROM products p
      WHERE p.product_barcode = ?
+       AND p.branch_id = ?
      LIMIT 1`,
-    [normalized],
+    [normalized, branchId],
   );
 
   if (!products.length) {
@@ -144,13 +165,14 @@ async function lookupProductByBarcode(barcode) {
             ExpiryDate
      FROM product_batches
      WHERE product_barcode = ?
+       AND branch_id = ?
        AND COALESCE(Block, 0) = 0
        AND COALESCE(Qty, 0) > 0
      ORDER BY CASE WHEN ExpiryDate IS NULL THEN 1 ELSE 0 END,
               ExpiryDate ASC,
               id ASC
      LIMIT 1`,
-    [normalized],
+    [normalized, branchId],
   );
 
   if (!batches.length) {
@@ -177,7 +199,8 @@ async function lookupProductByBarcode(barcode) {
   };
 }
 
-async function searchProducts(query) {
+async function searchProducts(query, user) {
+  const branchId = branchIdFromUser(user);
   const normalized = normalizeText(query);
   const isDefaultList = !normalized;
   const resultLimit = isDefaultList ? 15 : 50;
@@ -188,12 +211,14 @@ async function searchProducts(query) {
               SELECT COALESCE(SUM(COALESCE(pb.Qty, 0)), 0)
               FROM product_batches pb
               WHERE pb.product_barcode = p.product_barcode
+                AND pb.branch_id = ?
                 AND COALESCE(pb.Block, 0) = 0
             ) AS qty_total,
             (
               SELECT pb.selling_price
               FROM product_batches pb
               WHERE pb.product_barcode = p.product_barcode
+                AND pb.branch_id = ?
                 AND COALESCE(pb.Block, 0) = 0
                 AND COALESCE(pb.Qty, 0) > 0
               ORDER BY CASE WHEN pb.ExpiryDate IS NULL THEN 1 ELSE 0 END, pb.ExpiryDate ASC, pb.id ASC
@@ -203,18 +228,21 @@ async function searchProducts(query) {
               SELECT pb.batch_id
               FROM product_batches pb
               WHERE pb.product_barcode = p.product_barcode
+                AND pb.branch_id = ?
                 AND COALESCE(pb.Block, 0) = 0
                 AND COALESCE(pb.Qty, 0) > 0
               ORDER BY CASE WHEN pb.ExpiryDate IS NULL THEN 1 ELSE 0 END, pb.ExpiryDate ASC, pb.id ASC
               LIMIT 1
             ) AS batch_id
      FROM products p
-     WHERE ${
+     WHERE p.branch_id = ?
+       AND ${
        isDefaultList
          ? `EXISTS (
               SELECT 1
               FROM product_batches pb
               WHERE pb.product_barcode = p.product_barcode
+                AND pb.branch_id = ?
                 AND COALESCE(pb.Block, 0) = 0
                 AND COALESCE(pb.Qty, 0) > 0
             )`
@@ -222,7 +250,9 @@ async function searchProducts(query) {
      }
      ORDER BY p.product_name ASC
      LIMIT ?`,
-    isDefaultList ? [resultLimit] : [`%${normalized}%`, `%${normalized}%`, resultLimit],
+    isDefaultList
+      ? [branchId, branchId, branchId, branchId, branchId, resultLimit]
+      : [branchId, branchId, branchId, branchId, `%${normalized}%`, `%${normalized}%`, resultLimit],
   );
 
   const products = rows
@@ -254,13 +284,14 @@ async function searchProducts(query) {
             id
      FROM product_batches
      WHERE product_barcode IN (${placeholders})
+       AND branch_id = ?
        AND COALESCE(Block, 0) = 0
        AND COALESCE(Qty, 0) <> 0
      ORDER BY product_barcode ASC,
               CASE WHEN ExpiryDate IS NULL THEN 1 ELSE 0 END,
               ExpiryDate ASC,
               id ASC`,
-    barcodes,
+    [...barcodes, branchId],
   );
 
   const batchesByBarcode = new Map();
@@ -285,11 +316,12 @@ async function searchProducts(query) {
   }));
 }
 
-async function getTerminalRow(machineName, connection, { forUpdate = false } = {}) {
+async function getTerminalRow(machineName, connection, { forUpdate = false, user } = {}) {
+  const branchId = branchIdFromUser(user);
   const db = connection || getPool();
   const lockClause = forUpdate && connection ? ' FOR UPDATE' : '';
   const [rows] = await db.query(
-    `SELECT ID, machine_name, serial_number, min_number, ptu_number, current_or, or_end
+    `SELECT ID, machine_name, serial_number, min_number, ptu_number, current_or, or_end, branch_id
      FROM terminals_a
      WHERE machine_name = ?
      LIMIT 1${lockClause}`,
@@ -299,6 +331,12 @@ async function getTerminalRow(machineName, connection, { forUpdate = false } = {
   if (!rows.length) {
     const error = new Error('Terminal not found.');
     error.statusCode = 404;
+    throw error;
+  }
+
+  if (Number(rows[0].branch_id) !== branchId) {
+    const error = new Error('Terminal does not belong to your branch.');
+    error.statusCode = 403;
     throw error;
   }
 
@@ -314,7 +352,9 @@ async function listActiveSeries(machineName, user) {
     throw error;
   }
 
-  const terminal = await getTerminalRow(normalized);
+  branchIdFromUser(user);
+
+  const terminal = await getTerminalRow(normalized, undefined, { user });
 
   const [rows] = await getPool().query(
     `SELECT ID, full_series_no, machine_id, min_number, created_at, lockbatch, totalsales, vat_amount, grand_total
@@ -340,7 +380,8 @@ async function createSalesSeries(machineName, user) {
     throw error;
   }
 
-  const terminal = await getTerminalRow(normalized);
+  const branchId = branchIdFromUser(user);
+  const terminal = await getTerminalRow(normalized, undefined, { user });
   const dateCompact = todayCompactDate();
   const prefix = `${normalized}-${dateCompact}-`;
 
@@ -368,8 +409,8 @@ async function createSalesSeries(machineName, user) {
 
   const [result] = await getPool().query(
     `INSERT INTO sales_series
-      (created_at, full_series_no, machine_id, min_number, ptu, seriesno, starting_balance, totalsales, vat_amount, grand_total, userid, username, lockbatch)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, 'N')`,
+      (created_at, full_series_no, machine_id, min_number, ptu, seriesno, starting_balance, totalsales, vat_amount, grand_total, userid, username, lockbatch, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, 'N', ?)`,
     [
       todayDateString(),
       fullSeriesNo,
@@ -379,6 +420,7 @@ async function createSalesSeries(machineName, user) {
       nextSeq,
       user.userId,
       user.username,
+      branchId,
     ],
   );
 
@@ -655,13 +697,14 @@ async function getSummary(machineName, seriesNo) {
   };
 }
 
-async function resolveBatchForLine(connection, barcode, batchId, qty) {
+async function resolveBatchForLine(connection, barcode, batchId, qty, branchId) {
   let query = `SELECT id, batch_id, selling_price, COALESCE(Qty, 0) AS qty_available
                FROM product_batches
                WHERE product_barcode = ?
+                 AND branch_id = ?
                  AND COALESCE(Block, 0) = 0
                  AND COALESCE(Qty, 0) >= ?`;
-  const params = [barcode, qty];
+  const params = [barcode, branchId, qty];
 
   if (batchId) {
     query += ' AND batch_id = ?';
@@ -681,15 +724,16 @@ async function resolveBatchForLine(connection, barcode, batchId, qty) {
   return rows[0];
 }
 
-async function resolveFifoBatchAllocations(connection, barcode, qtyRequired) {
+async function resolveFifoBatchAllocations(connection, barcode, qtyRequired, branchId) {
   const [rows] = await connection.query(
     `SELECT id, batch_id, selling_price, COALESCE(Qty, 0) AS qty_available
      FROM product_batches
      WHERE product_barcode = ?
+       AND branch_id = ?
        AND COALESCE(Block, 0) = 0
        AND COALESCE(Qty, 0) > 0
      ORDER BY CASE WHEN ExpiryDate IS NULL THEN 1 ELSE 0 END, ExpiryDate ASC, id ASC`,
-    [barcode],
+    [barcode, branchId],
   );
 
   let remaining = qtyRequired;
@@ -724,13 +768,13 @@ async function resolveFifoBatchAllocations(connection, barcode, qtyRequired) {
   return allocations;
 }
 
-async function getCartQtyByBatch(connection, userId, barcode) {
+async function getCartQtyByBatch(connection, userId, barcode, branchId) {
   const [rows] = await connection.query(
     `SELECT BATCHID, COALESCE(SUM(QTY), 0) AS qty_in_cart
      FROM cart
-     WHERE USERID = ? AND BARCODE = ?
+     WHERE USERID = ? AND BARCODE = ? AND branch_id = ?
      GROUP BY BATCHID`,
-    [userId, barcode],
+    [userId, barcode, branchId],
   );
 
   const cartQtyByBatch = new Map();
@@ -740,15 +784,16 @@ async function getCartQtyByBatch(connection, userId, barcode) {
   return cartQtyByBatch;
 }
 
-async function fetchFifoBatches(connection, barcode) {
+async function fetchFifoBatches(connection, barcode, branchId) {
   const [rows] = await connection.query(
     `SELECT id, batch_id, selling_price, COALESCE(Qty, 0) AS qty_available
      FROM product_batches
      WHERE product_barcode = ?
+       AND branch_id = ?
        AND COALESCE(Block, 0) = 0
        AND COALESCE(Qty, 0) > 0
      ORDER BY CASE WHEN ExpiryDate IS NULL THEN 1 ELSE 0 END, ExpiryDate ASC, id ASC`,
-    [barcode],
+    [barcode, branchId],
   );
 
   return rows.map((row) => ({
@@ -759,15 +804,16 @@ async function fetchFifoBatches(connection, barcode) {
   }));
 }
 
-async function getBatchAvailableQty(connection, barcode, batchId) {
+async function getBatchAvailableQty(connection, barcode, batchId, branchId) {
   const [rows] = await connection.query(
     `SELECT COALESCE(Qty, 0) AS qty_available
      FROM product_batches
      WHERE product_barcode = ?
        AND batch_id = ?
+       AND branch_id = ?
        AND COALESCE(Block, 0) = 0
      LIMIT 1`,
-    [barcode, batchId],
+    [barcode, batchId, branchId],
   );
 
   if (!rows.length) {
@@ -777,13 +823,13 @@ async function getBatchAvailableQty(connection, barcode, batchId) {
   return Number(rows[0].qty_available) || 0;
 }
 
-async function findCartRowsForLine(connection, userId, barcode, batchId) {
+async function findCartRowsForLine(connection, userId, barcode, batchId, branchId) {
   const [rows] = await connection.query(
     `SELECT ID, QTY, PRICE
      FROM cart
-     WHERE USERID = ? AND BARCODE = ? AND BATCHID = ?
+     WHERE USERID = ? AND BARCODE = ? AND BATCHID = ? AND branch_id = ?
      ORDER BY ID DESC`,
-    [userId, barcode, batchId],
+    [userId, barcode, batchId, branchId],
   );
 
   return rows;
@@ -799,9 +845,10 @@ async function upsertCartIncrement(connection, payload) {
     qtyDelta,
     price,
     userId,
+    branchId,
   } = payload;
 
-  const existingRows = await findCartRowsForLine(connection, userId, barcode, batchId);
+  const existingRows = await findCartRowsForLine(connection, userId, barcode, batchId, branchId);
   const linePrice = roundMoney(price);
 
   if (existingRows.length) {
@@ -834,8 +881,8 @@ async function upsertCartIncrement(connection, payload) {
   const lineTotal = roundMoney(linePrice * initialQty);
 
   await connection.query(
-    `INSERT INTO cart (BATCHID, BARCODE, DESCRIPTION, BRAND, UNIT, QTY, PRICE, TOTAL, USERID)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO cart (BATCHID, BARCODE, DESCRIPTION, BRAND, UNIT, QTY, PRICE, TOTAL, USERID, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       batchId,
       barcode,
@@ -846,12 +893,13 @@ async function upsertCartIncrement(connection, payload) {
       linePrice,
       lineTotal,
       userId,
+      branchId,
     ],
   );
 }
 
-async function allocateCartQtyIncrement(connection, barcode, qtyToAdd, userId, productMeta) {
-  const batches = await fetchFifoBatches(connection, barcode);
+async function allocateCartQtyIncrement(connection, barcode, qtyToAdd, userId, productMeta, branchId) {
+  const batches = await fetchFifoBatches(connection, barcode, branchId);
 
   if (!batches.length) {
     const error = new Error('Product not found.');
@@ -859,7 +907,7 @@ async function allocateCartQtyIncrement(connection, barcode, qtyToAdd, userId, p
     throw error;
   }
 
-  const cartQtyByBatch = await getCartQtyByBatch(connection, userId, barcode);
+  const cartQtyByBatch = await getCartQtyByBatch(connection, userId, barcode, branchId);
   let remaining = qtyToAdd;
   const touchedBatchIds = [];
 
@@ -885,6 +933,7 @@ async function allocateCartQtyIncrement(connection, barcode, qtyToAdd, userId, p
       qtyDelta: allocate,
       price: batch.price,
       userId,
+      branchId,
     });
 
     cartQtyByBatch.set(batch.batch_id, inCart + allocate);
@@ -902,12 +951,13 @@ async function allocateCartQtyIncrement(connection, barcode, qtyToAdd, userId, p
 }
 
 async function fetchCartLinesForCheckout(connection, user) {
+  const branchId = branchIdFromUser(user);
   const [rows] = await connection.query(
     `SELECT c.BATCHID, c.BARCODE, c.DESCRIPTION, c.BRAND, c.UNIT, c.QTY, c.PRICE, c.TOTAL
      FROM cart c
-     WHERE c.USERID = ?
+     WHERE c.USERID = ? AND c.branch_id = ?
      ORDER BY c.ID ASC`,
-    [user.userId],
+    [user.userId, branchId],
   );
 
   return rows.map((row) => ({
@@ -937,13 +987,14 @@ async function checkout(payload, user) {
     throw error;
   }
 
+  const branchId = branchIdFromUser(user);
   const pool = getPool();
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    const terminal = await getTerminalRow(machineName, connection, { forUpdate: true });
+    const terminal = await getTerminalRow(machineName, connection, { forUpdate: true, user });
     const currentOr = Number(terminal.current_or) || 1;
     const orEnd = Number(terminal.or_end);
 
@@ -977,19 +1028,25 @@ async function checkout(payload, user) {
       throw error;
     }
 
-    const vatRate = await getVatRate();
+    const vatRate = await getVatRate(branchId);
     const resolvedLines = [];
 
     for (const line of cartLines) {
       const barcode = normalizeText(line.barcode);
       const qty = Math.max(1, Number(line.qty) || 1);
-      const batch = await resolveBatchForLine(connection, barcode, normalizeText(line.batch_id), qty);
+      const batch = await resolveBatchForLine(
+        connection,
+        barcode,
+        normalizeText(line.batch_id),
+        qty,
+        branchId,
+      );
       const price = roundMoney(line.price ?? batch.selling_price);
       const total = roundMoney(price * qty);
 
       const [productRows] = await connection.query(
-        `SELECT product_name, category, brand, unit FROM products WHERE product_barcode = ? LIMIT 1`,
-        [barcode],
+        `SELECT product_name, category, brand, unit FROM products WHERE product_barcode = ? AND branch_id = ? LIMIT 1`,
+        [barcode, branchId],
       );
 
       resolvedLines.push({
@@ -1022,8 +1079,8 @@ async function checkout(payload, user) {
       `INSERT INTO sales_a
         (Created_at, sales_series_no, MachineName, PTU, ORSI, sales_amt, discountrate, discount_amount,
          sales_vatable_amount, sales_vat_rate, sales_total_amt, sales_grandtotal, amt_tendered, amt_change,
-         payment_method, payment_ref_no, total_item_sold, userid, username, VOIDED, VOID_REASON)
-       VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'N', 'N/A')`,
+         payment_method, payment_ref_no, total_item_sold, userid, username, VOIDED, VOID_REASON, branch_id)
+       VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'N', 'N/A', ?)`,
       [
         salesSeriesNo,
         machineName,
@@ -1043,14 +1100,15 @@ async function checkout(payload, user) {
         totalItemSold,
         user.userId,
         user.username,
+        branchId,
       ],
     );
 
     for (const line of resolvedLines) {
       await connection.query(
         `INSERT INTO sales_b
-          (DATECREATED, sales_series_no, ORSI, CATEGORY, BATCHID, BARCODE, DESCRIPTION, BRAND, UNIT, QTY, PRICE, TOTAL, VOIDED)
-         VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'N')`,
+          (DATECREATED, sales_series_no, ORSI, CATEGORY, BATCHID, BARCODE, DESCRIPTION, BRAND, UNIT, QTY, PRICE, TOTAL, VOIDED, branch_id)
+         VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'N', ?)`,
         [
           salesSeriesNo,
           currentOr,
@@ -1063,6 +1121,7 @@ async function checkout(payload, user) {
           line.qty,
           line.price,
           line.total,
+          branchId,
         ],
       );
 
@@ -1070,8 +1129,8 @@ async function checkout(payload, user) {
         `UPDATE product_batches
          SET quantity_remaining = GREATEST(0, COALESCE(quantity_remaining, Qty, 0) - ?),
              Qty = GREATEST(0, COALESCE(Qty, 0) - ?)
-         WHERE product_barcode = ? AND batch_id = ?`,
-        [line.qty, line.qty, line.barcode, line.batch_id],
+         WHERE product_barcode = ? AND batch_id = ? AND branch_id = ?`,
+        [line.qty, line.qty, line.barcode, line.batch_id, branchId],
       );
     }
 
@@ -1091,7 +1150,7 @@ async function checkout(payload, user) {
     const nextOr = currentOr + 1;
     await connection.query('UPDATE terminals_a SET current_or = ? WHERE ID = ?', [nextOr, terminal.ID]);
 
-    await connection.query(`DELETE FROM cart WHERE USERID = ?`, [user.userId]);
+    await connection.query(`DELETE FROM cart WHERE USERID = ? AND branch_id = ?`, [user.userId, branchId]);
 
     await connection.commit();
 
@@ -1148,7 +1207,8 @@ async function buildReportPayload(machineName, reportType, user) {
     throw error;
   }
 
-  const vatRate = await getVatRate();
+  const branchId = branchIdFromUser(user);
+  const vatRate = await getVatRate(branchId);
 
   const [seriesRows] = await getPool().query(
     `SELECT COALESCE(SUM(COALESCE(ss.starting_balance, 0)), 0) AS starting_balance
@@ -1279,6 +1339,7 @@ async function runZReport(machineName, user) {
 }
 
 async function upsertCartLine(line, user) {
+  const branchId = branchIdFromUser(user);
   const batchId = normalizeText(line.batch_id);
   const barcode = normalizeText(line.barcode);
   const description = normalizeText(line.description);
@@ -1306,7 +1367,7 @@ async function upsertCartLine(line, user) {
   const safeTotal = roundMoney(total);
 
   const pool = getPool();
-  const batchAvailable = await getBatchAvailableQty(pool, barcode, batchId);
+  const batchAvailable = await getBatchAvailableQty(pool, barcode, batchId, branchId);
 
   if (batchAvailable <= 0) {
     const error = new Error(`Batch ${batchId} is not available for barcode ${barcode}.`);
@@ -1325,9 +1386,10 @@ async function upsertCartLine(line, user) {
      FROM product_batches
      WHERE product_barcode = ?
        AND batch_id = ?
+       AND branch_id = ?
        AND COALESCE(Block, 0) = 0
      LIMIT 1`,
-    [barcode, batchId],
+    [barcode, batchId, branchId],
   );
 
   if (!stockRows.length) {
@@ -1345,7 +1407,7 @@ async function upsertCartLine(line, user) {
   try {
     await connection.beginTransaction();
 
-    const existingRows = await findCartRowsForLine(connection, user.userId, barcode, batchId);
+    const existingRows = await findCartRowsForLine(connection, user.userId, barcode, batchId, branchId);
     let lineId = null;
 
     if (existingRows.length) {
@@ -1368,9 +1430,9 @@ async function upsertCartLine(line, user) {
       }
     } else {
       const [result] = await connection.query(
-        `INSERT INTO cart (BATCHID, BARCODE, DESCRIPTION, BRAND, UNIT, QTY, PRICE, TOTAL, USERID)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [batchId, barcode, description || barcode, brand || '', unit || '', safeQty, linePrice, lineTotal, user.userId],
+        `INSERT INTO cart (BATCHID, BARCODE, DESCRIPTION, BRAND, UNIT, QTY, PRICE, TOTAL, USERID, branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [batchId, barcode, description || barcode, brand || '', unit || '', safeQty, linePrice, lineTotal, user.userId, branchId],
       );
       lineId = result.insertId;
     }
@@ -1395,6 +1457,7 @@ async function upsertCartLine(line, user) {
 }
 
 async function addToCartFifo(line, user) {
+  const branchId = branchIdFromUser(user);
   const barcode = normalizeText(line.barcode);
   const qty = Number(line.qty ?? 0);
 
@@ -1420,8 +1483,9 @@ async function addToCartFifo(line, user) {
       `SELECT product_name, brand, unit, product_image_path
        FROM products
        WHERE product_barcode = ?
+         AND branch_id = ?
        LIMIT 1`,
-      [barcode],
+      [barcode, branchId],
     );
 
     if (!productRows.length) {
@@ -1437,7 +1501,14 @@ async function addToCartFifo(line, user) {
       unit: normalizeText(product.unit) || '',
     };
 
-    const batchIds = await allocateCartQtyIncrement(connection, barcode, qty, user.userId, productMeta);
+    const batchIds = await allocateCartQtyIncrement(
+      connection,
+      barcode,
+      qty,
+      user.userId,
+      productMeta,
+      branchId,
+    );
 
     let rows;
     if (batchIds.length) {
@@ -1446,9 +1517,10 @@ async function addToCartFifo(line, user) {
         `SELECT ID, BATCHID, BARCODE, DESCRIPTION, BRAND, UNIT, QTY, PRICE, TOTAL
          FROM cart
          WHERE USERID = ?
+           AND branch_id = ?
            AND BARCODE = ?
            AND BATCHID IN (${placeholders})`,
-        [user.userId, barcode, ...batchIds],
+        [user.userId, branchId, barcode, ...batchIds],
       );
       rows = cartRows;
     } else {
@@ -1482,13 +1554,14 @@ async function addToCartFifo(line, user) {
 }
 
 async function listCartLines(user) {
+  const branchId = branchIdFromUser(user);
   const [rows] = await getPool().query(
     `SELECT c.ID, c.BATCHID, c.BARCODE, c.DESCRIPTION, c.BRAND, c.UNIT, c.QTY, c.PRICE, c.TOTAL, p.product_image_path
      FROM cart c
-     LEFT JOIN products p ON p.product_barcode = c.BARCODE
-     WHERE c.USERID = ?
+     LEFT JOIN products p ON p.product_barcode = c.BARCODE AND p.branch_id = c.branch_id
+     WHERE c.USERID = ? AND c.branch_id = ?
      ORDER BY c.ID ASC`,
-    [user.userId],
+    [user.userId, branchId],
   );
 
   return rows.map((row) => ({
@@ -1506,6 +1579,7 @@ async function listCartLines(user) {
 }
 
 async function removeCartLine(line, user) {
+  const branchId = branchIdFromUser(user);
   const batchId = normalizeText(line.batch_id);
   const barcode = normalizeText(line.barcode);
 
@@ -1515,11 +1589,10 @@ async function removeCartLine(line, user) {
     throw error;
   }
 
-  const [result] = await getPool().query(`DELETE FROM cart WHERE USERID = ? AND BARCODE = ? AND BATCHID = ?`, [
-    user.userId,
-    barcode,
-    batchId,
-  ]);
+  const [result] = await getPool().query(
+    `DELETE FROM cart WHERE USERID = ? AND branch_id = ? AND BARCODE = ? AND BATCHID = ?`,
+    [user.userId, branchId, barcode, batchId],
+  );
 
   return {
     ok: true,
@@ -1528,7 +1601,8 @@ async function removeCartLine(line, user) {
 }
 
 async function clearCart(user) {
-  await getPool().query(`DELETE FROM cart WHERE USERID = ?`, [user.userId]);
+  const branchId = branchIdFromUser(user);
+  await getPool().query(`DELETE FROM cart WHERE USERID = ? AND branch_id = ?`, [user.userId, branchId]);
   return { ok: true };
 }
 
@@ -1682,7 +1756,7 @@ async function fetchTransactionRowByOrsi(orsi) {
 async function recomputeSalesAFromLines(connection, salesA, activeLines) {
   const lineTotals = activeLines.map((line) => Number(line.TOTAL) || 0);
   const discountRate = Number(salesA.discountrate) || 0;
-  const vatRate = Number(salesA.sales_vat_rate) || (await getVatRate());
+  const vatRate = Number(salesA.sales_vat_rate) || (await getVatRate(Number(salesA.branch_id) || undefined));
   const totals = computeSaleTotals(lineTotals, discountRate, vatRate);
   const totalItemSold = activeLines.reduce((sum, line) => sum + (Number(line.QTY) || 0), 0);
   const paymentMethod = String(salesA.payment_method || '');

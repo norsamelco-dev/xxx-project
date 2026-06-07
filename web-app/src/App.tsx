@@ -15,6 +15,7 @@ import MachineTerminalRegistrationPage from './pages/MachineTerminalRegistration
 import ReceiptHeadingPage from './pages/ReceiptHeadingPage'
 import SalesReportPage from './pages/SalesReportPage'
 import UsersPage from './pages/UsersPage'
+import BranchesPage from './pages/BranchesPage'
 
 function App() {
   const { status } = useAuth()
@@ -141,6 +142,14 @@ function App() {
         element={
           <ProtectedRoute requiredAccess="salesReport">
             <SalesReportPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/branches"
+        element={
+          <ProtectedRoute requiredAccess="branches">
+            <BranchesPage />
           </ProtectedRoute>
         }
       />

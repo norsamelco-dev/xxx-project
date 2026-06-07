@@ -42,9 +42,12 @@ export type PosCartLine = {
   product_image_path?: string | null
 }
 
-export async function lookupTerminal(machineName: string) {
+export async function lookupTerminal(machineName: string, branchCode?: string) {
   const response = await apiClient.get<{ data: TerminalLookup }>('/api/pos/terminals/lookup', {
-    params: { machine_name: machineName },
+    params: {
+      machine_name: machineName,
+      ...(branchCode ? { branch_code: branchCode } : {}),
+    },
   })
   return response.data.data
 }

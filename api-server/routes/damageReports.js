@@ -1,5 +1,6 @@
 const express = require('express');
 const requireAuth = require('../middleware/requireAuth');
+const requireBranchContext = require('../middleware/requireBranchContext');
 const { findUserById, passwordsMatch } = require('../services/userService');
 const {
   listDamageReasonOptions,
@@ -28,10 +29,11 @@ const {
 const router = express.Router();
 
 router.use(requireAuth);
+router.use(requireBranchContext);
 
-router.get('/reasons', async (_request, response) => {
+router.get('/reasons', async (request, response) => {
   try {
-    const data = await listDamageReasonOptions();
+    const data = await listDamageReasonOptions(request.branchId);
     response.json({ data });
   } catch (error) {
     response.status(error.statusCode || 500).json({
@@ -40,9 +42,9 @@ router.get('/reasons', async (_request, response) => {
   }
 });
 
-router.get('/reason-options', async (_request, response) => {
+router.get('/reason-options', async (request, response) => {
   try {
-    const data = await listAllDamageReasonOptions();
+    const data = await listAllDamageReasonOptions(request.branchId);
     response.json({ data });
   } catch (error) {
     response.status(error.statusCode || 500).json({
@@ -53,7 +55,7 @@ router.get('/reason-options', async (_request, response) => {
 
 router.post('/reason-options', async (request, response) => {
   try {
-    const data = await createDamageReasonOption(request.body || {});
+    const data = await createDamageReasonOption(request.body || {}, request.branchId);
 
     response.status(201).json({
       data,
@@ -68,7 +70,7 @@ router.post('/reason-options', async (request, response) => {
 
 router.put('/reason-options/reorder', async (request, response) => {
   try {
-    const data = await reorderDamageReasonOptions(request.body?.ordered_ids);
+    const data = await reorderDamageReasonOptions(request.body?.ordered_ids, request.branchId);
 
     response.json({
       data,
@@ -84,7 +86,7 @@ router.put('/reason-options/reorder', async (request, response) => {
 router.put('/reason-options/:optionId', async (request, response) => {
   try {
     const optionId = Number(request.params.optionId);
-    const data = await updateDamageReasonOption(optionId, request.body || {});
+    const data = await updateDamageReasonOption(optionId, request.body || {}, request.branchId);
 
     response.json({
       data,
@@ -100,7 +102,7 @@ router.put('/reason-options/:optionId', async (request, response) => {
 router.delete('/reason-options/:optionId', async (request, response) => {
   try {
     const optionId = Number(request.params.optionId);
-    await deleteDamageReasonOption(optionId);
+    await deleteDamageReasonOption(optionId, request.branchId);
 
     response.json({
       message: 'Damage reason option deleted successfully.',
@@ -114,7 +116,7 @@ router.delete('/reason-options/:optionId', async (request, response) => {
 
 router.get('/products/lookup', async (request, response) => {
   try {
-    const data = await lookupDamageReportProductByBarcode(request.query.barcode);
+    const data = await lookupDamageReportProductByBarcode(request.query.barcode, request.branchId);
     response.json({ data });
   } catch (error) {
     response.status(error.statusCode || 500).json({
@@ -123,9 +125,9 @@ router.get('/products/lookup', async (request, response) => {
   }
 });
 
-router.get('/products', async (_request, response) => {
+router.get('/products', async (request, response) => {
   try {
-    const data = await listDamageReportProducts();
+    const data = await listDamageReportProducts(request.branchId);
     response.json({ data });
   } catch (error) {
     response.status(error.statusCode || 500).json({
@@ -136,7 +138,7 @@ router.get('/products', async (_request, response) => {
 
 router.get('/products/search', async (request, response) => {
   try {
-    const data = await searchDamageReportProducts(request.query.q);
+    const data = await searchDamageReportProducts(request.query.q, request.branchId);
     response.json({ data });
   } catch (error) {
     response.status(error.statusCode || 500).json({
@@ -148,6 +150,7 @@ router.get('/products/search', async (request, response) => {
 router.get('/sync-logs', async (request, response) => {
   try {
     const payload = await listDamageReportSyncLogs({
+      branchId: request.branchId,
       startDate: request.query.start_date,
       endDate: request.query.end_date,
       username: request.query.username,
@@ -167,6 +170,7 @@ router.get('/sync-logs', async (request, response) => {
 router.get('/', async (request, response) => {
   try {
     const data = await listDamageReports({
+      branchId: request.branchId,
       status: request.query.status,
       search: request.query.search,
       dateFrom: request.query.date_from,
@@ -183,7 +187,7 @@ router.get('/', async (request, response) => {
 
 router.post('/', async (request, response) => {
   try {
-    const data = await createDamageReport(request.session?.user || null);
+    const data = await createDamageReport(request.session?.user || null, request.branchId);
 
     response.status(201).json({
       data,
@@ -199,7 +203,7 @@ router.post('/', async (request, response) => {
 router.get('/:id/sync-preview', async (request, response) => {
   try {
     const id = Number(request.params.id);
-    const data = await getDamageReportSyncPreview(id);
+    const data = await getDamageReportSyncPreview(id, request.branchId);
     response.json({ data });
   } catch (error) {
     response.status(error.statusCode || 500).json({
@@ -211,7 +215,7 @@ router.get('/:id/sync-preview', async (request, response) => {
 router.get('/:id/sync-logs', async (request, response) => {
   try {
     const id = Number(request.params.id);
-    const payload = await listSyncLogsForReport(id);
+    const payload = await listSyncLogsForReport(id, request.branchId);
     response.json(payload);
   } catch (error) {
     response.status(error.statusCode || 500).json({
@@ -246,7 +250,7 @@ router.post('/:id/sync', async (request, response) => {
       });
     }
 
-    const data = await syncDamageReport(id, request.session?.user || null);
+    const data = await syncDamageReport(id, request.session?.user || null, request.branchId);
 
     response.json({
       data,
@@ -263,7 +267,7 @@ router.post('/:id/sync', async (request, response) => {
 router.get('/:id', async (request, response) => {
   try {
     const id = Number(request.params.id);
-    const data = await getDamageReport(id);
+    const data = await getDamageReport(id, request.branchId);
     response.json({ data });
   } catch (error) {
     response.status(error.statusCode || 500).json({
@@ -275,7 +279,7 @@ router.get('/:id', async (request, response) => {
 router.put('/:id', async (request, response) => {
   try {
     const id = Number(request.params.id);
-    const data = await updateDamageReport(id, request.body || {});
+    const data = await updateDamageReport(id, request.body || {}, request.branchId);
 
     response.json({
       data,
@@ -291,7 +295,7 @@ router.put('/:id', async (request, response) => {
 router.delete('/:id', async (request, response) => {
   try {
     const id = Number(request.params.id);
-    await deleteDamageReport(id);
+    await deleteDamageReport(id, request.branchId);
 
     response.json({
       message: 'Damage report deleted successfully.',
@@ -306,7 +310,7 @@ router.delete('/:id', async (request, response) => {
 router.post('/:id/items', async (request, response) => {
   try {
     const id = Number(request.params.id);
-    const data = await addDamageReportItem(id, request.body || {});
+    const data = await addDamageReportItem(id, request.body || {}, request.branchId);
 
     response.status(201).json({
       data,
@@ -323,7 +327,7 @@ router.put('/:id/items/:itemId', async (request, response) => {
   try {
     const id = Number(request.params.id);
     const itemId = Number(request.params.itemId);
-    const data = await updateDamageReportItem(id, itemId, request.body || {});
+    const data = await updateDamageReportItem(id, itemId, request.body || {}, request.branchId);
 
     response.json({
       data,
@@ -340,7 +344,7 @@ router.delete('/:id/items/:itemId', async (request, response) => {
   try {
     const id = Number(request.params.id);
     const itemId = Number(request.params.itemId);
-    await deleteDamageReportItem(id, itemId);
+    await deleteDamageReportItem(id, itemId, request.branchId);
 
     response.json({
       message: 'Damage report item removed successfully.',

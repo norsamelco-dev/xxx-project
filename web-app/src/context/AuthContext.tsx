@@ -9,6 +9,9 @@ export type SessionUser = {
   fullName: string
   active: boolean
   createdAt: string
+  branchId: number
+  branchCode: string
+  branchName: string
   pageAccess: {
     dashboardX: boolean
     auditLogs: boolean
@@ -19,6 +22,7 @@ export type SessionUser = {
     machineTerminalRegistration: boolean
     damageReports: boolean
     procurement: boolean
+    branches: boolean
   }
 }
 

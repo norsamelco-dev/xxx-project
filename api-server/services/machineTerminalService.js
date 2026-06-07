@@ -82,7 +82,7 @@ function buildDuplicateError(duplicates) {
   return error;
 }
 
-async function findDuplicateFields(payload, excludeId) {
+async function findDuplicateFields(branchId, payload, excludeId) {
   const normalized = normalizePayload(payload || {});
   const validExcludeId = Number.isInteger(Number(excludeId)) && Number(excludeId) > 0 ? Number(excludeId) : null;
 
@@ -94,12 +94,13 @@ async function findDuplicateFields(payload, excludeId) {
         return null;
       }
 
-      const params = validExcludeId ? [value, validExcludeId] : [value];
+      const params = validExcludeId ? [branchId, value, validExcludeId] : [branchId, value];
       const exclusionClause = validExcludeId ? 'AND ID <> ?' : '';
       const [rows] = await getPool().query(
         `SELECT ID
          FROM terminals_a
-         WHERE ${column} = ?
+         WHERE branch_id = ?
+           AND ${column} = ?
          ${exclusionClause}
          LIMIT 1`,
         params,
@@ -116,21 +117,23 @@ async function findDuplicateFields(payload, excludeId) {
   return results.filter(Boolean);
 }
 
-async function listMachines() {
+async function listMachines(branchId) {
   const [rows] = await getPool().query(
     `SELECT ID, machine_name, serial_number, min_number, ptu_number,
             or_start, or_end, current_or, valid_start, valid_end, is_active,
-            created_at, updated_at
+            created_at, updated_at, branch_id
      FROM terminals_a
+     WHERE branch_id = ?
      ORDER BY ID ASC`,
+    [branchId],
   );
 
   return rows;
 }
 
-async function createMachine(payload) {
+async function createMachine(branchId, payload) {
   const normalized = normalizePayload(payload || {});
-  const duplicates = await findDuplicateFields(normalized);
+  const duplicates = await findDuplicateFields(branchId, normalized);
 
   if (duplicates.length > 0) {
     throw buildDuplicateError(duplicates);
@@ -140,8 +143,8 @@ async function createMachine(payload) {
     `INSERT INTO terminals_a
       (machine_name, serial_number, min_number, ptu_number,
        or_start, or_end, current_or, valid_start, valid_end, is_active,
-       created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+       created_at, updated_at, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), ?)`,
     [
       normalized.machine_name,
       normalized.serial_number,
@@ -153,24 +156,26 @@ async function createMachine(payload) {
       normalized.valid_start,
       normalized.valid_end,
       normalized.is_active,
+      branchId,
     ],
   );
 
   const [rows] = await getPool().query(
     `SELECT ID, machine_name, serial_number, min_number, ptu_number,
             or_start, or_end, current_or, valid_start, valid_end, is_active,
-            created_at, updated_at
+            created_at, updated_at, branch_id
      FROM terminals_a
-     WHERE ID = ?`,
-    [result.insertId],
+     WHERE ID = ?
+       AND branch_id = ?`,
+    [result.insertId, branchId],
   );
 
   return rows[0] || null;
 }
 
-async function updateMachine(id, payload) {
+async function updateMachine(branchId, id, payload) {
   const normalized = normalizePayload(payload || {});
-  const duplicates = await findDuplicateFields(normalized, id);
+  const duplicates = await findDuplicateFields(branchId, normalized, id);
 
   if (duplicates.length > 0) {
     throw buildDuplicateError(duplicates);
@@ -189,7 +194,8 @@ async function updateMachine(id, payload) {
          valid_end = ?,
          is_active = ?,
          updated_at = NOW()
-     WHERE ID = ?`,
+     WHERE ID = ?
+       AND branch_id = ?`,
     [
       normalized.machine_name,
       normalized.serial_number,
@@ -202,6 +208,7 @@ async function updateMachine(id, payload) {
       normalized.valid_end,
       normalized.is_active,
       id,
+      branchId,
     ],
   );
 
@@ -212,17 +219,21 @@ async function updateMachine(id, payload) {
   const [rows] = await getPool().query(
     `SELECT ID, machine_name, serial_number, min_number, ptu_number,
             or_start, or_end, current_or, valid_start, valid_end, is_active,
-            created_at, updated_at
+            created_at, updated_at, branch_id
      FROM terminals_a
-     WHERE ID = ?`,
-    [id],
+     WHERE ID = ?
+       AND branch_id = ?`,
+    [id, branchId],
   );
 
   return rows[0] || null;
 }
 
-async function deleteMachine(id) {
-  const [result] = await getPool().query('DELETE FROM terminals_a WHERE ID = ?', [id]);
+async function deleteMachine(branchId, id) {
+  const [result] = await getPool().query(
+    'DELETE FROM terminals_a WHERE ID = ? AND branch_id = ?',
+    [id, branchId],
+  );
   return result.affectedRows > 0;
 }
 

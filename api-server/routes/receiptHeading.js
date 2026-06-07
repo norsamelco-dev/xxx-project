@@ -3,7 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const requireAuth = require('../middleware/requireAuth');
+const requireBranchContext = require('../middleware/requireBranchContext');
 const { getReceiptHeading, saveReceiptHeading } = require('../services/receiptHeadingService');
+const { findBranchByCode, getBranchById } = require('../services/branchService');
 
 const router = express.Router();
 const logosDir = path.resolve(__dirname, '..', 'api', 'logos');
@@ -88,9 +90,27 @@ function toPublicReceiptHeading(data) {
   };
 }
 
-router.get('/public', async (_request, response) => {
+router.get('/public', async (request, response) => {
   try {
-    const data = await getReceiptHeading();
+    let branchId = null;
+    const branchCode = String(request.query.branch_code || '').trim();
+
+    if (branchCode) {
+      const branch = await findBranchByCode(branchCode);
+      branchId = branch?.branch_id ?? null;
+    }
+
+    if (!branchId) {
+      const mainBranch = await findBranchByCode('MAIN');
+      branchId = mainBranch?.branch_id ?? null;
+    }
+
+    if (!branchId) {
+      const fallback = await getBranchById(1);
+      branchId = fallback?.branch_id ?? 1;
+    }
+
+    const data = await getReceiptHeading(branchId);
 
     response.json({
       data: toPublicReceiptHeading(data),
@@ -103,10 +123,11 @@ router.get('/public', async (_request, response) => {
 });
 
 router.use(requireAuth);
+router.use(requireBranchContext);
 
-router.get('/', async (_request, response) => {
+router.get('/', async (request, response) => {
   try {
-    const data = await getReceiptHeading();
+    const data = await getReceiptHeading(request.branchId);
 
     response.json({
       data,
@@ -126,7 +147,7 @@ router.put(
   ]),
   async (request, response) => {
   try {
-    const existing = await getReceiptHeading();
+    const existing = await getReceiptHeading(request.branchId);
     const files = request.files || {};
     const businessLogoFile = files.business_logo?.[0] || null;
     const developerLogoFile = files.developer_logo?.[0] || null;
@@ -146,7 +167,7 @@ router.put(
       payload.developer_logo_path = saveLogoFile(developerLogoFile, 'developer-logo');
     }
 
-    const data = await saveReceiptHeading(payload);
+    const data = await saveReceiptHeading(request.branchId, payload);
 
     response.json({
       data,

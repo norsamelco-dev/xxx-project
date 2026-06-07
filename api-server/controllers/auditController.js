@@ -82,7 +82,17 @@ function shouldSkipAutomaticAudit(request, response) {
   return false;
 }
 
+function resolveBranchId(request) {
+  if (request.branchId !== undefined && request.branchId !== null) {
+    return request.branchId;
+  }
+
+  const user = request.session?.user || request.posUser;
+  return user?.branchId ?? null;
+}
+
 async function insertAuditLog({
+  branchId,
   userId,
   username,
   actionType,
@@ -96,9 +106,10 @@ async function insertAuditLog({
 }) {
   await getPool().query(
     `INSERT INTO audit_logs
-     (user_id, username, action_type, table_name, product_barcode, description, machineid, ptunumber, ip_address, device_info)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (branch_id, user_id, username, action_type, table_name, product_barcode, description, machineid, ptunumber, ip_address, device_info)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
+      branchId,
       userId,
       username.slice(0, 255),
       actionType,
@@ -123,9 +134,10 @@ async function logAuditAction(request, response) {
     return;
   }
 
-  const user = request.session?.user;
+  const user = request.session?.user || request.posUser;
   const userId = user?.userId ? String(user.userId) : 'SYSTEM';
   const username = user?.username ? String(user.username) : 'SYSTEM';
+  const branchId = resolveBranchId(request);
   const tableName = resolveTableName(request);
   const productBarcode = resolveProductBarcode(request);
   const machineId = String(request.headers['x-machine-id'] || 'N/A').slice(0, 255);
@@ -134,6 +146,7 @@ async function logAuditAction(request, response) {
   const deviceInfo = String(request.headers['user-agent'] || 'Unknown device');
 
   await insertAuditLog({
+    branchId,
     userId,
     username,
     actionType: audit.action,
@@ -148,9 +161,10 @@ async function logAuditAction(request, response) {
 }
 
 async function recordClientAudit(request) {
-  const user = request.session?.user;
+  const user = request.session?.user || request.posUser;
   const userId = user?.userId ? String(user.userId) : 'SYSTEM';
   const username = user?.username ? String(user.username) : 'SYSTEM';
+  const branchId = resolveBranchId(request);
   const page = String(request.body?.page || '').trim();
   const action = String(request.body?.action || 'VIEW PAGE').trim();
   const description = String(request.body?.description || '').trim();
@@ -172,6 +186,7 @@ async function recordClientAudit(request) {
   const resolvedDescription = description || `Page: ${page}.`;
 
   await insertAuditLog({
+    branchId,
     userId,
     username,
     actionType: action.slice(0, 255),

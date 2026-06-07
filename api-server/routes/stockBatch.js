@@ -1,5 +1,6 @@
 const express = require('express');
 const requireAuth = require('../middleware/requireAuth');
+const requireBranchContext = require('../middleware/requireBranchContext');
 const { findUserById, passwordsMatch } = require('../services/userService');
 const {
   listStockBatchProducts,
@@ -16,10 +17,11 @@ const {
 const router = express.Router();
 
 router.use(requireAuth);
+router.use(requireBranchContext);
 
-router.get('/products', async (_request, response) => {
+router.get('/products', async (request, response) => {
   try {
-    const data = await listStockBatchProducts();
+    const data = await listStockBatchProducts(request.branchId);
     response.json({ data });
   } catch (error) {
     response.status(500).json({
@@ -31,7 +33,7 @@ router.get('/products', async (_request, response) => {
 router.get('/templates', async (request, response) => {
   try {
     const limit = Number(request.query.limit);
-    const data = await listStockBatchTemplates(limit);
+    const data = await listStockBatchTemplates(request.branchId, limit);
     response.json({ data });
   } catch (error) {
     response.status(error.statusCode || 500).json({
@@ -42,7 +44,11 @@ router.get('/templates', async (request, response) => {
 
 router.post('/templates', async (request, response) => {
   try {
-    const data = await createStockBatchTemplate(request.body || {}, request.session?.user || null);
+    const data = await createStockBatchTemplate(
+      request.body || {},
+      request.session?.user || null,
+      request.branchId,
+    );
 
     response.status(201).json({
       data,
@@ -58,13 +64,18 @@ router.post('/templates', async (request, response) => {
 router.post('/templates/by-barcode', async (request, response) => {
   try {
     const barcode = String(request.body?.barcode || '');
-    const result = await createStockBatchTemplateByBarcode(barcode, request.session?.user || null, {
-      batchId: request.body?.batchId ?? null,
-      qty: request.body?.qty,
-      costPrice: request.body?.costPrice,
-      sellingPrice: request.body?.sellingPrice,
-      expiration: request.body?.expiration,
-    });
+    const result = await createStockBatchTemplateByBarcode(
+      barcode,
+      request.session?.user || null,
+      {
+        batchId: request.body?.batchId ?? null,
+        qty: request.body?.qty,
+        costPrice: request.body?.costPrice,
+        sellingPrice: request.body?.sellingPrice,
+        expiration: request.body?.expiration,
+      },
+      request.branchId,
+    );
     const isUpdated = result?.action === 'updated';
     const needsDetails = result?.action === 'requires_details';
 
@@ -92,7 +103,7 @@ router.post('/templates/by-barcode', async (request, response) => {
 router.delete('/templates/:id', async (request, response) => {
   try {
     const id = Number(request.params.id);
-    const deleted = await deleteStockBatchTemplateRowById(id);
+    const deleted = await deleteStockBatchTemplateRowById(id, request.branchId);
 
     if (!deleted) {
       return response.status(404).json({
@@ -113,7 +124,12 @@ router.delete('/templates/:id', async (request, response) => {
 router.put('/templates/:id', async (request, response) => {
   try {
     const id = Number(request.params.id);
-    const data = await updateStockBatchTemplateRowById(id, request.body || {}, request.session?.user || null);
+    const data = await updateStockBatchTemplateRowById(
+      id,
+      request.body || {},
+      request.session?.user || null,
+      request.branchId,
+    );
 
     if (!data) {
       return response.status(404).json({
@@ -132,9 +148,9 @@ router.put('/templates/:id', async (request, response) => {
   }
 });
 
-router.get('/sync-preview', async (_request, response) => {
+router.get('/sync-preview', async (request, response) => {
   try {
-    const data = await getStockBatchSyncPreview();
+    const data = await getStockBatchSyncPreview(request.branchId);
     response.json({ data });
   } catch (error) {
     response.status(error.statusCode || 500).json({
@@ -168,7 +184,10 @@ router.post('/sync', async (request, response) => {
       });
     }
 
-    const data = await syncStockBatchTemplateToInventory(request.session?.user || null);
+    const data = await syncStockBatchTemplateToInventory(
+      request.session?.user || null,
+      request.branchId,
+    );
 
     response.json({
       data,
@@ -186,6 +205,7 @@ router.post('/sync', async (request, response) => {
 router.get('/sync-history', async (request, response) => {
   try {
     const result = await listStockBatchSyncHistory({
+      branchId: request.branchId,
       startDate: request.query.start_date,
       endDate: request.query.end_date,
       search: request.query.search,

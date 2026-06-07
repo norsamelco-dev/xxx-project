@@ -1,5 +1,6 @@
 const express = require('express');
 const requireAuth = require('../middleware/requireAuth');
+const requireBranchContext = require('../middleware/requireBranchContext');
 const {
   USER_ROLES,
   listUsers,
@@ -14,6 +15,7 @@ const {
 const router = express.Router();
 
 router.use(requireAuth);
+router.use(requireBranchContext);
 
 router.use((request, response, next) => {
   if (request.session?.user?.role !== 'Admin') {
@@ -25,9 +27,11 @@ router.use((request, response, next) => {
   return next();
 });
 
-router.get('/', async (_request, response) => {
+router.get('/', async (request, response) => {
   try {
-    const data = await listUsers();
+    const branchId = Number(request.query.branch_id);
+    const normalizedBranchId = Number.isInteger(branchId) && branchId > 0 ? branchId : null;
+    const data = await listUsers(normalizedBranchId);
     response.json({ data, roles: USER_ROLES });
   } catch (error) {
     response.status(500).json({ error: error.message });

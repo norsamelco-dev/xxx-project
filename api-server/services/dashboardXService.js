@@ -91,7 +91,7 @@ function voidedFilterSql(columnName) {
   return `UPPER(TRIM(COALESCE(${columnName}, 'N'))) <> 'Y'`;
 }
 
-async function getOverviewCards() {
+async function getOverviewCards(branchId) {
   const pool = getPool();
 
   const [salesRows] = await pool.query(
@@ -117,16 +117,20 @@ async function getOverviewCards() {
                           ELSE 0
                         END), 0) AS total_sales_month,
             COALESCE(SUM(CASE WHEN ${voidedFilterSql('sa.VOIDED')} THEN 1 ELSE 0 END), 0) AS total_transactions
-     FROM sales_a sa`,
+     FROM sales_a sa
+     WHERE sa.branch_id = ?`,
+    [branchId],
   );
 
   const [activeRows] = await pool.query(
-    `SELECT (SELECT COUNT(*) FROM terminals_a WHERE COALESCE(is_active, 0) = 1) AS active_machines,
+    `SELECT (SELECT COUNT(*) FROM terminals_a WHERE COALESCE(is_active, 0) = 1 AND branch_id = ?) AS active_machines,
             (SELECT COUNT(*)
              FROM users
-             WHERE ACTIVE = 1
+             WHERE branch_id = ?
+               AND (ACTIVE = 1
                 OR ACTIVE = '1'
-                OR UPPER(TRIM(COALESCE(ACTIVE, 'N'))) = 'Y') AS active_users`,
+                OR UPPER(TRIM(COALESCE(ACTIVE, 'N'))) = 'Y')) AS active_users`,
+    [branchId, branchId],
   );
 
   return {
@@ -139,9 +143,9 @@ async function getOverviewCards() {
   };
 }
 
-async function getSalesTrends(range, groupBy) {
+async function getSalesTrends(range, groupBy, branchId) {
   const pool = getPool();
-  const params = [range.startDate, range.endExclusive];
+  const params = [branchId, range.startDate, range.endExclusive];
 
   let groupSelect = "DATE_FORMAT(sa.Created_at, '%Y-%m-%d')";
   let groupOrder = 'DATE(sa.Created_at)';
@@ -163,7 +167,8 @@ async function getSalesTrends(range, groupBy) {
             COALESCE(SUM(COALESCE(sa.sales_grandtotal, 0)), 0) AS total_sales,
             COUNT(*) AS transaction_count
      FROM sales_a sa
-     WHERE sa.Created_at >= ?
+     WHERE sa.branch_id = ?
+       AND sa.Created_at >= ?
        AND sa.Created_at < ?
        AND ${voidedFilterSql('sa.VOIDED')}
      GROUP BY ${labelAlias}
@@ -178,7 +183,7 @@ async function getSalesTrends(range, groupBy) {
   }));
 }
 
-async function getTopProducts(range, limit = 10) {
+async function getTopProducts(range, branchId, limit = 10) {
   const pool = getPool();
   const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 100);
 
@@ -188,16 +193,17 @@ async function getTopProducts(range, limit = 10) {
             COALESCE(SUM(COALESCE(sb.QTY, 0)), 0) AS total_qty,
             COALESCE(SUM(COALESCE(sb.TOTAL, 0)), 0) AS total_sales
      FROM sales_b sb
-     INNER JOIN sales_a sa ON sa.ORSI = sb.ORSI
-     LEFT JOIN products p ON p.product_barcode = sb.BARCODE
-     WHERE sa.Created_at >= ?
+     INNER JOIN sales_a sa ON sa.ORSI = sb.ORSI AND sa.branch_id = sb.branch_id
+     LEFT JOIN products p ON p.product_barcode = sb.BARCODE AND p.branch_id = sb.branch_id
+     WHERE sa.branch_id = ?
+       AND sa.Created_at >= ?
        AND sa.Created_at < ?
        AND ${voidedFilterSql('sa.VOIDED')}
        AND ${voidedFilterSql('sb.VOIDED')}
      GROUP BY product_name, category
      ORDER BY total_sales DESC, total_qty DESC
      LIMIT ?`,
-    [range.startDate, range.endExclusive, safeLimit],
+    [branchId, range.startDate, range.endExclusive, safeLimit],
   );
 
   return rows.map((row) => ({
@@ -208,21 +214,22 @@ async function getTopProducts(range, limit = 10) {
   }));
 }
 
-async function getSalesByCategory(range) {
+async function getSalesByCategory(range, branchId) {
   const pool = getPool();
   const [rows] = await pool.query(
     `SELECT COALESCE(NULLIF(TRIM(sb.CATEGORY), ''), 'Uncategorized') AS category,
             COALESCE(SUM(COALESCE(sb.TOTAL, 0)), 0) AS total_sales,
             COALESCE(SUM(COALESCE(sb.QTY, 0)), 0) AS total_qty
      FROM sales_b sb
-     INNER JOIN sales_a sa ON sa.ORSI = sb.ORSI
-     WHERE sa.Created_at >= ?
+     INNER JOIN sales_a sa ON sa.ORSI = sb.ORSI AND sa.branch_id = sb.branch_id
+     WHERE sa.branch_id = ?
+       AND sa.Created_at >= ?
        AND sa.Created_at < ?
        AND ${voidedFilterSql('sa.VOIDED')}
        AND ${voidedFilterSql('sb.VOIDED')}
      GROUP BY category
      ORDER BY total_sales DESC`,
-    [range.startDate, range.endExclusive],
+    [branchId, range.startDate, range.endExclusive],
   );
 
   return rows.map((row) => ({
@@ -232,7 +239,7 @@ async function getSalesByCategory(range) {
   }));
 }
 
-async function getPeakHours(range) {
+async function getPeakHours(range, branchId) {
   const pool = getPool();
   const [rows] = await pool.query(
     `SELECT HOUR(sa.Created_at) AS hour_number,
@@ -240,12 +247,13 @@ async function getPeakHours(range) {
             COUNT(*) AS transaction_count,
             COALESCE(SUM(COALESCE(sa.sales_grandtotal, 0)), 0) AS total_sales
      FROM sales_a sa
-     WHERE sa.Created_at >= ?
+     WHERE sa.branch_id = ?
+       AND sa.Created_at >= ?
        AND sa.Created_at < ?
        AND ${voidedFilterSql('sa.VOIDED')}
      GROUP BY hour_number, hour_label
      ORDER BY hour_number ASC`,
-    [range.startDate, range.endExclusive],
+    [branchId, range.startDate, range.endExclusive],
   );
 
   return rows.map((row) => ({
@@ -255,7 +263,7 @@ async function getPeakHours(range) {
   }));
 }
 
-async function getDiscountsAndVoids(range) {
+async function getDiscountsAndVoids(range, branchId) {
   const pool = getPool();
 
   const [discountRows] = await pool.query(
@@ -265,19 +273,21 @@ async function getDiscountsAndVoids(range) {
             COALESCE(SUM(CASE WHEN NOT ${voidedFilterSql('sa.VOIDED')} THEN 1 ELSE 0 END), 0) AS voided_transactions,
             COALESCE(SUM(CASE WHEN NOT ${voidedFilterSql('sa.VOIDED')} THEN COALESCE(sa.sales_grandtotal, 0) ELSE 0 END), 0) AS voided_amount
      FROM sales_a sa
-     WHERE sa.Created_at >= ?
+     WHERE sa.branch_id = ?
+       AND sa.Created_at >= ?
        AND sa.Created_at < ?`,
-    [range.startDate, range.endExclusive],
+    [branchId, range.startDate, range.endExclusive],
   );
 
   const [voidItemRows] = await pool.query(
     `SELECT COALESCE(SUM(CASE WHEN NOT ${voidedFilterSql('sb.VOIDED')} THEN 1 ELSE 0 END), 0) AS voided_items,
             COALESCE(SUM(CASE WHEN NOT ${voidedFilterSql('sb.VOIDED')} THEN COALESCE(sb.TOTAL, 0) ELSE 0 END), 0) AS voided_items_amount
      FROM sales_b sb
-     INNER JOIN sales_a sa ON sa.ORSI = sb.ORSI
-     WHERE sa.Created_at >= ?
+     INNER JOIN sales_a sa ON sa.ORSI = sb.ORSI AND sa.branch_id = sb.branch_id
+     WHERE sa.branch_id = ?
+       AND sa.Created_at >= ?
        AND sa.Created_at < ?`,
-    [range.startDate, range.endExclusive],
+    [branchId, range.startDate, range.endExclusive],
   );
 
   return {
@@ -291,7 +301,7 @@ async function getDiscountsAndVoids(range) {
   };
 }
 
-async function getPaymentBreakdown(range) {
+async function getPaymentBreakdown(range, branchId) {
   const pool = getPool();
 
   const [rows] = await pool.query(
@@ -303,12 +313,13 @@ async function getPaymentBreakdown(range) {
             COUNT(*) AS transactions,
             COALESCE(SUM(COALESCE(sa.sales_grandtotal, 0)), 0) AS total_sales
      FROM sales_a sa
-     WHERE sa.Created_at >= ?
+     WHERE sa.branch_id = ?
+       AND sa.Created_at >= ?
        AND sa.Created_at < ?
        AND ${voidedFilterSql('sa.VOIDED')}
      GROUP BY payment_method, payment_group
      ORDER BY total_sales DESC`,
-    [range.startDate, range.endExclusive],
+    [branchId, range.startDate, range.endExclusive],
   );
 
   const grouped = rows.reduce(
@@ -334,7 +345,7 @@ async function getPaymentBreakdown(range) {
   };
 }
 
-async function getInventoryAlertCounts() {
+async function getInventoryAlertCounts(branchId) {
   const pool = getPool();
 
   const [lowStockRows] = await pool.query(
@@ -344,10 +355,13 @@ async function getInventoryAlertCounts() {
        SELECT pb.product_barcode,
               COALESCE(SUM(COALESCE(pb.Qty, 0)), 0) AS total_qty
        FROM product_batches pb
+       WHERE pb.branch_id = ?
        GROUP BY pb.product_barcode
      ) stock ON stock.product_barcode = p.product_barcode
-     WHERE COALESCE(stock.total_qty, 0) <= COALESCE(p.rop, 0)
+     WHERE p.branch_id = ?
+       AND COALESCE(stock.total_qty, 0) <= COALESCE(p.rop, 0)
        AND COALESCE(stock.total_qty, 0) > 0`,
+    [branchId, branchId],
   );
 
   const [outOfStockRows] = await pool.query(
@@ -357,18 +371,23 @@ async function getInventoryAlertCounts() {
        SELECT pb.product_barcode,
               COALESCE(SUM(COALESCE(pb.Qty, 0)), 0) AS total_qty
        FROM product_batches pb
+       WHERE pb.branch_id = ?
        GROUP BY pb.product_barcode
      ) stock ON stock.product_barcode = p.product_barcode
-     WHERE COALESCE(stock.total_qty, 0) <= 0`,
+     WHERE p.branch_id = ?
+       AND COALESCE(stock.total_qty, 0) <= 0`,
+    [branchId, branchId],
   );
 
   const [nearExpiryRows] = await pool.query(
     `SELECT COUNT(*) AS near_expiry_count
      FROM product_batches pb
-     WHERE pb.ExpiryDate IS NOT NULL
+     WHERE pb.branch_id = ?
+       AND pb.ExpiryDate IS NOT NULL
        AND pb.ExpiryDate > '2000-01-01'
        AND pb.ExpiryDate >= CURDATE()
        AND pb.ExpiryDate <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)`,
+    [branchId],
   );
 
   return {
@@ -416,9 +435,9 @@ function fillDailyTrendGaps(trends, range) {
   return points;
 }
 
-async function getDailySalesLastMonth() {
+async function getDailySalesLastMonth(branchId) {
   const range = getLastMonthDailyRange();
-  const trends = await getSalesTrends(range, 'daily');
+  const trends = await getSalesTrends(range, 'daily', branchId);
   const points = fillDailyTrendGaps(trends, range);
 
   return {
@@ -428,12 +447,14 @@ async function getDailySalesLastMonth() {
   };
 }
 
-async function getInventorySummary() {
+async function getInventorySummary(branchId) {
   const pool = getPool();
 
   const [productCountRows] = await pool.query(
     `SELECT COUNT(*) AS total_products
-     FROM products`,
+     FROM products
+     WHERE branch_id = ?`,
+    [branchId],
   );
 
   const [lowStockRows] = await pool.query(
@@ -443,10 +464,13 @@ async function getInventorySummary() {
        SELECT pb.product_barcode,
               COALESCE(SUM(COALESCE(pb.Qty, 0)), 0) AS total_qty
        FROM product_batches pb
+       WHERE pb.branch_id = ?
        GROUP BY pb.product_barcode
      ) stock ON stock.product_barcode = p.product_barcode
-     WHERE COALESCE(stock.total_qty, 0) <= COALESCE(p.rop, 0)
+     WHERE p.branch_id = ?
+       AND COALESCE(stock.total_qty, 0) <= COALESCE(p.rop, 0)
        AND COALESCE(stock.total_qty, 0) > 0`,
+    [branchId, branchId],
   );
 
   const [outOfStockRows] = await pool.query(
@@ -456,24 +480,31 @@ async function getInventorySummary() {
        SELECT pb.product_barcode,
               COALESCE(SUM(COALESCE(pb.Qty, 0)), 0) AS total_qty
        FROM product_batches pb
+       WHERE pb.branch_id = ?
        GROUP BY pb.product_barcode
      ) stock ON stock.product_barcode = p.product_barcode
-     WHERE COALESCE(stock.total_qty, 0) <= 0`,
+     WHERE p.branch_id = ?
+       AND COALESCE(stock.total_qty, 0) <= 0`,
+    [branchId, branchId],
   );
 
   const [nearExpiryRows] = await pool.query(
     `SELECT COUNT(*) AS near_expiry_count
      FROM product_batches pb
-     WHERE pb.ExpiryDate IS NOT NULL
+     WHERE pb.branch_id = ?
+       AND pb.ExpiryDate IS NOT NULL
        AND pb.ExpiryDate > '2000-01-01'
        AND pb.ExpiryDate >= CURDATE()
        AND pb.ExpiryDate <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)`,
+    [branchId],
   );
 
   const [movementRows] = await pool.query(
     `SELECT COALESCE(SUM(COALESCE(pb.Qty, 0)), 0) AS stock_in_total,
             COALESCE(SUM(COALESCE(pb.quantity_remaining, 0)), 0) AS stock_remaining_total
-     FROM product_batches pb`,
+     FROM product_batches pb
+     WHERE pb.branch_id = ?`,
+    [branchId],
   );
 
   const stockInTotal = toNumber(movementRows[0]?.stock_in_total);
@@ -493,7 +524,7 @@ async function getInventorySummary() {
   };
 }
 
-async function getFinancialSummary(range, paymentBreakdown, discountsAndVoids) {
+async function getFinancialSummary(range, paymentBreakdown, discountsAndVoids, branchId) {
   const pool = getPool();
 
   const [taxRows] = await pool.query(
@@ -503,24 +534,27 @@ async function getFinancialSummary(range, paymentBreakdown, discountsAndVoids) {
                           ELSE 0
                         END), 0) AS tax_collected
      FROM sales_a sa
-     WHERE sa.Created_at >= ?
+     WHERE sa.branch_id = ?
+       AND sa.Created_at >= ?
        AND sa.Created_at < ?`,
-    [range.startDate, range.endExclusive],
+    [branchId, range.startDate, range.endExclusive],
   );
 
   const [profitRows] = await pool.query(
     `SELECT COALESCE(SUM(COALESCE(sb.TOTAL, 0)), 0) AS gross_sales,
             COALESCE(SUM(COALESCE(pb.cost_price, 0) * COALESCE(sb.QTY, 0)), 0) AS estimated_cogs
      FROM sales_b sb
-     INNER JOIN sales_a sa ON sa.ORSI = sb.ORSI
+     INNER JOIN sales_a sa ON sa.ORSI = sb.ORSI AND sa.branch_id = sb.branch_id
      LEFT JOIN product_batches pb
        ON pb.batch_id = sb.BATCHID
       AND pb.product_barcode = sb.BARCODE
-     WHERE sa.Created_at >= ?
+      AND pb.branch_id = sb.branch_id
+     WHERE sa.branch_id = ?
+       AND sa.Created_at >= ?
        AND sa.Created_at < ?
        AND ${voidedFilterSql('sa.VOIDED')}
        AND ${voidedFilterSql('sb.VOIDED')}`,
-    [range.startDate, range.endExclusive],
+    [branchId, range.startDate, range.endExclusive],
   );
 
   const grossSales = toNumber(profitRows[0]?.gross_sales);
@@ -544,7 +578,7 @@ async function getFinancialSummary(range, paymentBreakdown, discountsAndVoids) {
   };
 }
 
-async function getDamageReportSummary(range) {
+async function getDamageReportSummary(range, branchId) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
 
@@ -563,8 +597,9 @@ async function getDamageReportSummary(range) {
                           THEN 1
                           ELSE 0
                         END), 0) AS reports_synced_in_range
-     FROM ${DAMAGE_REPORTS_TABLE} dr`,
-    [range.startDate, range.endExclusive, range.startDate, range.endExclusive],
+     FROM ${DAMAGE_REPORTS_TABLE} dr
+     WHERE dr.branch_id = ?`,
+    [range.startDate, range.endExclusive, range.startDate, range.endExclusive, branchId],
   );
 
   const [qtyRows] = await pool.query(
@@ -572,10 +607,11 @@ async function getDamageReportSummary(range) {
             COUNT(*) AS total_line_items
      FROM ${DAMAGE_REPORT_ITEMS_TABLE} dri
      INNER JOIN ${DAMAGE_REPORTS_TABLE} dr ON dr.id = dri.damage_report_id
-     WHERE dr.status = 'synced'
+     WHERE dr.branch_id = ?
+       AND dr.status = 'synced'
        AND dr.synced_at >= ?
        AND dr.synced_at < ?`,
-    [range.startDate, range.endExclusive],
+    [branchId, range.startDate, range.endExclusive],
   );
 
   const [syncRows] = await pool.query(
@@ -583,9 +619,10 @@ async function getDamageReportSummary(range) {
             COALESCE(SUM(CASE WHEN LOWER(TRIM(dsl.status)) = 'success' THEN 1 ELSE 0 END), 0) AS sync_logs_success,
             COALESCE(SUM(CASE WHEN LOWER(TRIM(dsl.status)) <> 'success' THEN 1 ELSE 0 END), 0) AS sync_logs_failed
      FROM ${DAMAGE_SYNC_LOGS_TABLE} dsl
-     WHERE dsl.synced_at >= ?
+     WHERE dsl.branch_id = ?
+       AND dsl.synced_at >= ?
        AND dsl.synced_at < ?`,
-    [range.startDate, range.endExclusive],
+    [branchId, range.startDate, range.endExclusive],
   );
 
   return {
@@ -600,7 +637,7 @@ async function getDamageReportSummary(range) {
   };
 }
 
-async function getDamageTopReasons(range, limit = 8) {
+async function getDamageTopReasons(range, branchId, limit = 8) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
   const safeLimit = Math.min(Math.max(Number(limit) || 8, 1), 20);
@@ -611,13 +648,14 @@ async function getDamageTopReasons(range, limit = 8) {
             COUNT(*) AS line_items
      FROM ${DAMAGE_REPORT_ITEMS_TABLE} dri
      INNER JOIN ${DAMAGE_REPORTS_TABLE} dr ON dr.id = dri.damage_report_id
-     WHERE dr.status = 'synced'
+     WHERE dr.branch_id = ?
+       AND dr.status = 'synced'
        AND dr.synced_at >= ?
        AND dr.synced_at < ?
      GROUP BY dri.damage_reason
      ORDER BY total_qty DESC, line_items DESC
      LIMIT ?`,
-    [range.startDate, range.endExclusive, safeLimit],
+    [branchId, range.startDate, range.endExclusive, safeLimit],
   );
 
   return rows.map((row) => ({
@@ -627,7 +665,7 @@ async function getDamageTopReasons(range, limit = 8) {
   }));
 }
 
-async function getDamageTopProducts(range, limit = 10) {
+async function getDamageTopProducts(range, branchId, limit = 10) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
   const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 25);
@@ -638,12 +676,13 @@ async function getDamageTopProducts(range, limit = 10) {
             COALESCE(SUM(dslit.qty_requested), 0) AS qty_requested
      FROM ${DAMAGE_SYNC_LOG_ITEMS_TABLE} dslit
      INNER JOIN ${DAMAGE_SYNC_LOGS_TABLE} dsl ON dsl.id = dslit.sync_log_id
-     WHERE dsl.synced_at >= ?
+     WHERE dsl.branch_id = ?
+       AND dsl.synced_at >= ?
        AND dsl.synced_at < ?
      GROUP BY product_name
      ORDER BY qty_deducted DESC, qty_requested DESC
      LIMIT ?`,
-    [range.startDate, range.endExclusive, safeLimit],
+    [branchId, range.startDate, range.endExclusive, safeLimit],
   );
 
   return rows.map((row) => ({
@@ -653,10 +692,10 @@ async function getDamageTopProducts(range, limit = 10) {
   }));
 }
 
-async function getDamageSyncTrends(range, groupBy) {
+async function getDamageSyncTrends(range, groupBy, branchId) {
   const pool = getPool();
   await ensureDamageReportTables(pool);
-  const params = [range.startDate, range.endExclusive];
+  const params = [branchId, range.startDate, range.endExclusive];
 
   let groupSelect = "DATE_FORMAT(dsl.synced_at, '%Y-%m-%d')";
   let groupOrder = 'DATE(dsl.synced_at)';
@@ -678,7 +717,8 @@ async function getDamageSyncTrends(range, groupBy) {
             COALESCE(SUM(CASE WHEN LOWER(TRIM(dsl.status)) = 'success' THEN 1 ELSE 0 END), 0) AS success_count,
             COALESCE(SUM(CASE WHEN LOWER(TRIM(dsl.status)) <> 'success' THEN 1 ELSE 0 END), 0) AS failed_count
      FROM ${DAMAGE_SYNC_LOGS_TABLE} dsl
-     WHERE dsl.synced_at >= ?
+     WHERE dsl.branch_id = ?
+       AND dsl.synced_at >= ?
        AND dsl.synced_at < ?
      GROUP BY period_label
      ORDER BY ${groupOrder}`,
@@ -693,15 +733,15 @@ async function getDamageSyncTrends(range, groupBy) {
   }));
 }
 
-async function getDashboardDamageReports({ startDate, endDate, groupBy }) {
+async function getDashboardDamageReports({ branchId, startDate, endDate, groupBy }) {
   const normalizedGroupBy = normalizeGroupBy(groupBy);
   const range = getRangeBounds(startDate, endDate);
 
   const [summary, topReasons, topProducts, syncTrends] = await Promise.all([
-    getDamageReportSummary(range),
-    getDamageTopReasons(range, 10),
-    getDamageTopProducts(range, 10),
-    getDamageSyncTrends(range, normalizedGroupBy),
+    getDamageReportSummary(range, branchId),
+    getDamageTopReasons(range, branchId, 10),
+    getDamageTopProducts(range, branchId, 10),
+    getDamageSyncTrends(range, normalizedGroupBy, branchId),
   ]);
 
   return {
@@ -722,15 +762,15 @@ async function getDashboardDamageReports({ startDate, endDate, groupBy }) {
   };
 }
 
-async function getDashboardOverview({ startDate, endDate, groupBy }) {
+async function getDashboardOverview({ branchId, startDate, endDate, groupBy }) {
   const normalizedGroupBy = normalizeGroupBy(groupBy);
   const range = getRangeBounds(startDate, endDate);
 
   const [overview, alerts, dailySalesLastMonth, damageReports] = await Promise.all([
-    getOverviewCards(),
-    getInventoryAlertCounts(),
-    getDailySalesLastMonth(),
-    getDamageReportSummary(range).catch(() => ({
+    getOverviewCards(branchId),
+    getInventoryAlertCounts(branchId),
+    getDailySalesLastMonth(branchId),
+    getDamageReportSummary(range, branchId).catch(() => ({
       draftReportsOpen: 0,
       reportsCreatedInRange: 0,
       reportsSyncedInRange: 0,
@@ -745,7 +785,7 @@ async function getDashboardOverview({ startDate, endDate, groupBy }) {
   let topDamageReasons = [];
 
   try {
-    topDamageReasons = await getDamageTopReasons(range, 5);
+    topDamageReasons = await getDamageTopReasons(range, branchId, 5);
   } catch {
     topDamageReasons = [];
   }
@@ -765,16 +805,16 @@ async function getDashboardOverview({ startDate, endDate, groupBy }) {
   };
 }
 
-async function getDashboardSales({ startDate, endDate, groupBy }) {
+async function getDashboardSales({ branchId, startDate, endDate, groupBy }) {
   const normalizedGroupBy = normalizeGroupBy(groupBy);
   const range = getRangeBounds(startDate, endDate);
 
   const [dailySalesLastMonth, topProducts, salesByCategory, peakHours, discountsAndVoids] = await Promise.all([
-    getDailySalesLastMonth(),
-    getTopProducts(range, 100),
-    getSalesByCategory(range),
-    getPeakHours(range),
-    getDiscountsAndVoids(range),
+    getDailySalesLastMonth(branchId),
+    getTopProducts(range, branchId, 100),
+    getSalesByCategory(range, branchId),
+    getPeakHours(range, branchId),
+    getDiscountsAndVoids(range, branchId),
   ]);
 
   return {
@@ -792,21 +832,21 @@ async function getDashboardSales({ startDate, endDate, groupBy }) {
   };
 }
 
-async function getDashboardInventory() {
-  const inventory = await getInventorySummary();
+async function getDashboardInventory(branchId) {
+  const inventory = await getInventorySummary(branchId);
 
   return { inventory };
 }
 
-async function getDashboardFinancial({ startDate, endDate }) {
+async function getDashboardFinancial({ branchId, startDate, endDate }) {
   const range = getRangeBounds(startDate, endDate);
 
   const [paymentBreakdown, discountsAndVoids] = await Promise.all([
-    getPaymentBreakdown(range),
-    getDiscountsAndVoids(range),
+    getPaymentBreakdown(range, branchId),
+    getDiscountsAndVoids(range, branchId),
   ]);
 
-  const financial = await getFinancialSummary(range, paymentBreakdown, discountsAndVoids);
+  const financial = await getFinancialSummary(range, paymentBreakdown, discountsAndVoids, branchId);
 
   return {
     filters: {
@@ -817,15 +857,15 @@ async function getDashboardFinancial({ startDate, endDate }) {
   };
 }
 
-async function getDashboardXData({ startDate, endDate, groupBy }) {
+async function getDashboardXData({ branchId, startDate, endDate, groupBy }) {
   const normalizedGroupBy = normalizeGroupBy(groupBy);
   const range = getRangeBounds(startDate, endDate);
 
   const [overviewPayload, salesPayload, inventoryPayload, financialPayload] = await Promise.all([
-    getDashboardOverview({ startDate, endDate, groupBy: normalizedGroupBy }),
-    getDashboardSales({ startDate, endDate, groupBy: normalizedGroupBy }),
-    getDashboardInventory(),
-    getDashboardFinancial({ startDate, endDate }),
+    getDashboardOverview({ branchId, startDate, endDate, groupBy: normalizedGroupBy }),
+    getDashboardSales({ branchId, startDate, endDate, groupBy: normalizedGroupBy }),
+    getDashboardInventory(branchId),
+    getDashboardFinancial({ branchId, startDate, endDate }),
   ]);
 
   return {

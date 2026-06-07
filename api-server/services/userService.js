@@ -1,7 +1,24 @@
 const crypto = require('crypto');
 const { getPool } = require('../db');
+const { getBranchById } = require('./branchService');
 
 const USER_ROLES = ['Admin', 'Cashier', 'manager', 'Auditor'];
+
+const USER_SELECT_SQL = `
+  SELECT u.user_id,
+         u.username,
+         u.password_hash,
+         u.role,
+         u.full_name,
+         u.ACTIVE,
+         u.created_at,
+         u.PAGE_ACCESS_JSON,
+         u.branch_id,
+         b.branch_code,
+         b.branch_name
+  FROM users u
+  INNER JOIN branches b ON b.branch_id = u.branch_id
+`;
 
 function normalizeText(value) {
   if (value === undefined || value === null) {
@@ -68,6 +85,7 @@ function normalizePageAccessJson(payload) {
     machineTerminalRegistration: Boolean(parsed?.machineTerminalRegistration),
     damageReports: Boolean(parsed?.damageReports),
     procurement: Boolean(parsed?.procurement),
+    branches: Boolean(parsed?.branches),
   };
 
   return JSON.stringify(pageAccess);
@@ -91,6 +109,7 @@ function applyFullAccessIfAdmin(normalizedPayload) {
       machineTerminalRegistration: true,
       damageReports: true,
       procurement: true,
+      branches: true,
     }),
   };
 }
@@ -115,9 +134,8 @@ function normalizeFlag(value, fieldName) {
 
 async function findUserByUsername(username) {
   const [rows] = await getPool().query(
-    `SELECT user_id, username, password_hash, role, full_name, ACTIVE, created_at, PAGE_ACCESS_JSON
-     FROM users
-     WHERE LOWER(username) = LOWER(?)
+    `${USER_SELECT_SQL}
+     WHERE LOWER(u.username) = LOWER(?)
      LIMIT 1`,
     [username],
   );
@@ -127,9 +145,8 @@ async function findUserByUsername(username) {
 
 async function findUserById(userId) {
   const [rows] = await getPool().query(
-    `SELECT user_id, username, password_hash, role, full_name, ACTIVE, created_at, PAGE_ACCESS_JSON
-     FROM users
-     WHERE user_id = ?
+    `${USER_SELECT_SQL}
+     WHERE u.user_id = ?
      LIMIT 1`,
     [userId],
   );
@@ -137,19 +154,31 @@ async function findUserById(userId) {
   return rows[0] || null;
 }
 
-async function listUsers() {
-  const [rows] = await getPool().query(
-    `SELECT user_id,
-            username,
-            role,
-            full_name,
-            ACTIVE,
-            created_at,
-            PAGE_ACCESS_JSON
-     FROM users
-     ORDER BY user_id DESC`,
-  );
+async function listUsers(branchId = null) {
+  const queryParts = [
+    `SELECT u.user_id,
+            u.username,
+            u.role,
+            u.full_name,
+            u.ACTIVE,
+            u.created_at,
+            u.PAGE_ACCESS_JSON,
+            u.branch_id,
+            b.branch_code,
+            b.branch_name
+     FROM users u
+     INNER JOIN branches b ON b.branch_id = u.branch_id`,
+  ];
+  const params = [];
 
+  if (branchId !== null && branchId !== undefined) {
+    queryParts.push('WHERE u.branch_id = ?');
+    params.push(branchId);
+  }
+
+  queryParts.push('ORDER BY u.user_id DESC');
+
+  const [rows] = await getPool().query(queryParts.join('\n'), params);
   return rows;
 }
 
@@ -179,6 +208,26 @@ async function findExistingUsername(username, excludeUserId = null) {
   return rows[0] || null;
 }
 
+function normalizeBranchId(value) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    const error = new Error('A valid branch is required.');
+    error.statusCode = 400;
+    throw error;
+  }
+  return parsed;
+}
+
+async function assertBranchExists(branchId) {
+  const branch = await getBranchById(branchId);
+  if (!branch || !branch.is_active) {
+    const error = new Error('Selected branch does not exist or is inactive.');
+    error.statusCode = 400;
+    throw error;
+  }
+  return branch;
+}
+
 function normalizeCreatePayload(payload) {
   const username = normalizeText(payload.username);
   const password = normalizeText(payload.password);
@@ -201,6 +250,7 @@ function normalizeCreatePayload(payload) {
     role: normalizeRole(payload.role),
     full_name: normalizeText(payload.full_name),
     ACTIVE: normalizeFlag(payload.ACTIVE, 'ACTIVE'),
+    branch_id: normalizeBranchId(payload.branch_id),
   };
 
   return applyFullAccessIfAdmin({
@@ -226,32 +276,48 @@ function normalizeUpdatePayload(payload) {
     ACTIVE: normalizeFlag(payload.ACTIVE, 'ACTIVE'),
   };
 
+  if (payload.branch_id !== undefined && payload.branch_id !== null && payload.branch_id !== '') {
+    normalized.branch_id = normalizeBranchId(payload.branch_id);
+  }
+
   return applyFullAccessIfAdmin({
     ...normalized,
     PAGE_ACCESS_JSON: normalizePageAccessJson(payload),
   });
 }
 
-async function getUserByIdForManage(userId) {
-  const [rows] = await getPool().query(
-    `SELECT user_id,
-            username,
-            role,
-            full_name,
-            ACTIVE,
-            created_at,
-            PAGE_ACCESS_JSON
-     FROM users
-     WHERE user_id = ?
-     LIMIT 1`,
-    [userId],
-  );
+async function getUserByIdForManage(userId, branchId = null) {
+  const queryParts = [
+    `SELECT u.user_id,
+            u.username,
+            u.role,
+            u.full_name,
+            u.ACTIVE,
+            u.created_at,
+            u.PAGE_ACCESS_JSON,
+            u.branch_id,
+            b.branch_code,
+            b.branch_name
+     FROM users u
+     INNER JOIN branches b ON b.branch_id = u.branch_id
+     WHERE u.user_id = ?`,
+  ];
+  const params = [userId];
 
+  if (branchId !== null && branchId !== undefined) {
+    queryParts.push('AND u.branch_id = ?');
+    params.push(branchId);
+  }
+
+  queryParts.push('LIMIT 1');
+
+  const [rows] = await getPool().query(queryParts.join('\n'), params);
   return rows[0] || null;
 }
 
 async function createUser(payload) {
   const normalized = normalizeCreatePayload(payload || {});
+  await assertBranchExists(normalized.branch_id);
 
   const existingUsername = await findExistingUsername(normalized.username);
   if (existingUsername) {
@@ -264,8 +330,8 @@ async function createUser(payload) {
 
   const [result] = await getPool().query(
     `INSERT INTO users
-      (username, password_hash, role, full_name, ACTIVE, PAGE_ACCESS_JSON)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+      (username, password_hash, role, full_name, ACTIVE, PAGE_ACCESS_JSON, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       normalized.username,
       passwordHash,
@@ -273,18 +339,23 @@ async function createUser(payload) {
       normalized.full_name,
       normalized.ACTIVE,
       normalized.PAGE_ACCESS_JSON,
+      normalized.branch_id,
     ],
   );
 
   return getUserByIdForManage(result.insertId);
 }
 
-async function updateUser(userId, payload) {
+async function updateUser(userId, payload, branchId = null) {
   const normalized = normalizeUpdatePayload(payload || {});
-  const existing = await getUserByIdForManage(userId);
+  const existing = await getUserByIdForManage(userId, branchId);
 
   if (!existing) {
     return null;
+  }
+
+  if (normalized.branch_id !== undefined) {
+    await assertBranchExists(normalized.branch_id);
   }
 
   const usernameConflict = await findExistingUsername(normalized.username, userId);
@@ -293,6 +364,8 @@ async function updateUser(userId, payload) {
     error.statusCode = 409;
     throw error;
   }
+
+  const nextBranchId = normalized.branch_id !== undefined ? normalized.branch_id : existing.branch_id;
 
   if (normalized.password) {
     const passwordHash = hashPasswordSha256(normalized.password, 'utf8');
@@ -303,7 +376,8 @@ async function updateUser(userId, payload) {
            role = ?,
            full_name = ?,
            ACTIVE = ?,
-           PAGE_ACCESS_JSON = ?
+           PAGE_ACCESS_JSON = ?,
+           branch_id = ?
        WHERE user_id = ?`,
       [
         normalized.username,
@@ -312,6 +386,7 @@ async function updateUser(userId, payload) {
         normalized.full_name,
         normalized.ACTIVE,
         normalized.PAGE_ACCESS_JSON,
+        nextBranchId,
         userId,
       ],
     );
@@ -322,7 +397,8 @@ async function updateUser(userId, payload) {
            role = ?,
            full_name = ?,
            ACTIVE = ?,
-           PAGE_ACCESS_JSON = ?
+           PAGE_ACCESS_JSON = ?,
+           branch_id = ?
        WHERE user_id = ?`,
       [
         normalized.username,
@@ -330,16 +406,25 @@ async function updateUser(userId, payload) {
         normalized.full_name,
         normalized.ACTIVE,
         normalized.PAGE_ACCESS_JSON,
+        nextBranchId,
         userId,
       ],
     );
   }
 
-  return getUserByIdForManage(userId);
+  return getUserByIdForManage(userId, branchId);
 }
 
-async function deleteUser(userId) {
-  const [result] = await getPool().query('DELETE FROM users WHERE user_id = ?', [userId]);
+async function deleteUser(userId, branchId = null) {
+  const queryParts = ['DELETE FROM users WHERE user_id = ?'];
+  const params = [userId];
+
+  if (branchId !== null && branchId !== undefined) {
+    queryParts.push('AND branch_id = ?');
+    params.push(branchId);
+  }
+
+  const [result] = await getPool().query(queryParts.join(' '), params);
   return result.affectedRows > 0;
 }
 
@@ -385,6 +470,7 @@ function parsePageAccessJson(value) {
     machineTerminalRegistration: Boolean(parsed?.machineTerminalRegistration),
     damageReports: Boolean(parsed?.damageReports),
     procurement: Boolean(parsed?.procurement),
+    branches: Boolean(parsed?.branches),
   };
 }
 
@@ -402,6 +488,7 @@ function toSessionUser(user) {
       machineTerminalRegistration: true,
       damageReports: true,
       procurement: true,
+      branches: true,
     }
     : parsePageAccessJson(user?.PAGE_ACCESS_JSON);
 
@@ -412,6 +499,9 @@ function toSessionUser(user) {
     fullName: user.full_name,
     active: isUserActive(user.ACTIVE),
     createdAt: user.created_at,
+    branchId: user.branch_id,
+    branchCode: user.branch_code,
+    branchName: user.branch_name,
     pageAccess,
   };
 }

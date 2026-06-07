@@ -53,6 +53,7 @@ const navigationSections = [
       { to: '/damage-reports', label: 'Damage Reports', accessKey: 'damageReports' },
       { to: '/procurement', label: 'Procurement', accessKey: 'procurement' },
       { to: '/sales-report', label: 'Sales Report', accessKey: 'salesReport' },
+      { to: '/branches', label: 'Branches', accessKey: 'branches' },
       { to: '/users', label: 'Users', accessKey: 'users' },
       { to: '/receipt-heading', label: 'Business Profile Settings', accessKey: 'receiptHeading' },
       { to: '/machine-terminal-registration', label: 'Machine / Terminal Registration', accessKey: 'machineTerminalRegistration' },
@@ -241,6 +242,7 @@ function AdminShell({ title, description, children, actions, hideTopbar = false 
           <div>
             <strong>{user?.fullName || user?.username || 'Signed in user'}</strong>
             <span>{user?.role || 'User'}</span>
+            {user?.branchName ? <span>{user.branchName} ({user.branchCode})</span> : null}
           </div>
           <button
             className="sidebar-settings"

@@ -11,6 +11,7 @@ function signToken(user) {
     userId: user.userId,
     username: user.username,
     role: user.role,
+    branchId: user.branchId,
     exp: Date.now() + TOKEN_TTL_MS,
   };
   const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');

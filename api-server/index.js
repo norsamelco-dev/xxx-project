@@ -17,7 +17,9 @@ const salesRouter = require('./routes/sales');
 const dashboardXRouter = require('./routes/dashboardX');
 const procurementRouter = require('./routes/procurement');
 const posRouter = require('./routes/pos');
+const branchesRouter = require('./routes/branches');
 const localPrintersRouter = require('./routes/localPrinters');
+const { ensureBranchSchema } = require('./db/ensureBranchSchema');
 const requireAuth = require('./middleware/requireAuth');
 const auditLogger = require('./middleware/auditLogger');
 const requestLogger = require('./middleware/requestLogger');
@@ -112,6 +114,7 @@ app.use('/api/sales', salesRouter);
 app.use('/api/dashboardx', dashboardXRouter);
 app.use('/api/procurement', procurementRouter);
 app.use('/api/pos', posRouter);
+app.use('/api/branches', branchesRouter);
 app.use('/api/local', localPrintersRouter);
 
 app.get('/api/health', async (_request, response) => {
@@ -221,5 +224,9 @@ app.listen(port, host, () => {
 
   void ensureReceiptHeadingPrintLogoColumns().catch((error) => {
     console.error('[receipt-heading] Failed to ensure print logo columns:', error.message);
+  });
+
+  void ensureBranchSchema().catch((error) => {
+    console.error('[branch-schema] Failed to ensure branch schema:', error.message);
   });
 });

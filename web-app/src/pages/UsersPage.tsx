@@ -16,6 +16,15 @@ type UserRow = {
   ACTIVE: number
   created_at: string | null
   PAGE_ACCESS_JSON: string | null
+  branch_id: number
+  branch_code?: string
+  branch_name?: string
+}
+
+type BranchOption = {
+  branch_id: number
+  branch_code: string
+  branch_name: string
 }
 
 type UsersResponse = {
@@ -29,6 +38,7 @@ type UserForm = {
   role: string
   full_name: string
   ACTIVE: boolean
+  branch_id: string
   ACCESS_DASHBOARD_X: boolean
   ACCESS_AUDIT_LOGS: boolean
   ACCESS_PRODUCTS: boolean
@@ -38,6 +48,7 @@ type UserForm = {
   ACCESS_MACHINE_TERMINAL_REGISTRATION: boolean
   ACCESS_DAMAGE_REPORTS: boolean
   ACCESS_PROCUREMENT: boolean
+  ACCESS_BRANCHES: boolean
 }
 
 const initialForm: UserForm = {
@@ -46,6 +57,7 @@ const initialForm: UserForm = {
   role: 'Cashier',
   full_name: '',
   ACTIVE: true,
+  branch_id: '',
   ACCESS_DASHBOARD_X: false,
   ACCESS_AUDIT_LOGS: false,
   ACCESS_PRODUCTS: false,
@@ -55,6 +67,7 @@ const initialForm: UserForm = {
   ACCESS_MACHINE_TERMINAL_REGISTRATION: false,
   ACCESS_DAMAGE_REPORTS: false,
   ACCESS_PROCUREMENT: false,
+  ACCESS_BRANCHES: false,
 }
 
 type PageAccess = {
@@ -67,6 +80,7 @@ type PageAccess = {
   machineTerminalRegistration: boolean
   damageReports: boolean
   procurement: boolean
+  branches: boolean
 }
 
 function parsePageAccess(value: string | null): PageAccess {
@@ -81,6 +95,7 @@ function parsePageAccess(value: string | null): PageAccess {
       machineTerminalRegistration: false,
       damageReports: false,
       procurement: false,
+      branches: false,
     }
   }
 
@@ -95,9 +110,10 @@ function parsePageAccess(value: string | null): PageAccess {
         users: Boolean((parsed as { users?: boolean }).users),
         receiptHeading: Boolean((parsed as { receiptHeading?: boolean }).receiptHeading),
         machineTerminalRegistration: Boolean((parsed as { machineTerminalRegistration?: boolean }).machineTerminalRegistration),
-        damageReports: Boolean((parsed as { damageReports?: boolean }).damageReports),
-        procurement: Boolean((parsed as { procurement?: boolean }).procurement),
-      }
+      damageReports: Boolean((parsed as { damageReports?: boolean }).damageReports),
+      procurement: Boolean((parsed as { procurement?: boolean }).procurement),
+      branches: Boolean((parsed as { branches?: boolean }).branches),
+    }
     }
   } catch (_error) {
     // Fallback to all false for malformed JSON.
@@ -113,6 +129,7 @@ function parsePageAccess(value: string | null): PageAccess {
     machineTerminalRegistration: false,
     damageReports: false,
     procurement: false,
+    branches: false,
   }
 }
 
@@ -129,6 +146,7 @@ function pageAccessLabels(value: string | null): string[] {
   if (parsed.machineTerminalRegistration) labels.push('Machine / Terminal Registration')
   if (parsed.damageReports) labels.push('Damage Reports')
   if (parsed.procurement) labels.push('Procurement')
+  if (parsed.branches) labels.push('Branches')
 
   return labels
 }
@@ -227,6 +245,7 @@ function mapRowToForm(row: UserRow): UserForm {
     role: row.role || 'Cashier',
     full_name: row.full_name || '',
     ACTIVE: Boolean(row.ACTIVE),
+    branch_id: String(row.branch_id || ''),
     ACCESS_DASHBOARD_X: access.dashboardX,
     ACCESS_AUDIT_LOGS: access.auditLogs,
     ACCESS_PRODUCTS: access.products,
@@ -236,13 +255,17 @@ function mapRowToForm(row: UserRow): UserForm {
     ACCESS_MACHINE_TERMINAL_REGISTRATION: access.machineTerminalRegistration,
     ACCESS_DAMAGE_REPORTS: access.damageReports,
     ACCESS_PROCUREMENT: access.procurement,
+    ACCESS_BRANCHES: access.branches,
   }
 }
 
 function UsersPage() {
   const { user } = useAuth()
   usePageVisitAudit(AUDIT_PAGES.USERS)
+  const defaultBranchFilterId = user?.branchId ? String(user.branchId) : ''
   const [rows, setRows] = useState<UserRow[]>([])
+  const [branches, setBranches] = useState<BranchOption[]>([])
+  const [branchFilterId, setBranchFilterId] = useState(defaultBranchFilterId)
   const [roles, setRoles] = useState<string[]>(['Admin', 'Cashier', 'manager', 'Auditor'])
   const [form, setForm] = useState<UserForm>(initialForm)
   const [selectedRowId, setSelectedRowId] = useState<number | null>(null)
@@ -257,14 +280,37 @@ function UsersPage() {
   const [success, setSuccess] = useState('')
 
   useEffect(() => {
-    void loadRows()
+    if (user?.branchId) {
+      setBranchFilterId(String(user.branchId))
+    }
+  }, [user?.branchId])
+
+  useEffect(() => {
+    if (!user) {
+      return
+    }
+    void loadRows(branchFilterId)
+  }, [branchFilterId, user?.userId])
+
+  useEffect(() => {
+    void loadBranches()
   }, [])
 
-  async function loadRows() {
+  async function loadBranches() {
+    try {
+      const response = await apiFetch<{ data: BranchOption[] }>('/api/branches')
+      setBranches(response.data || [])
+    } catch {
+      setBranches([])
+    }
+  }
+
+  async function loadRows(filterBranchId = branchFilterId) {
     try {
       setError('')
       setIsLoading(true)
-      const response = await apiFetch<UsersResponse>('/api/users')
+      const query = filterBranchId ? `?branch_id=${encodeURIComponent(filterBranchId)}` : ''
+      const response = await apiFetch<UsersResponse>(`/api/users${query}`)
       setRows(response.data || [])
       setRoles(response.roles || ['Admin', 'Cashier', 'manager', 'Auditor'])
     } catch (loadError) {
@@ -278,7 +324,10 @@ function UsersPage() {
     setSelectedRowId(null)
     setEditingId(null)
     setDeletePassword('')
-    setForm(initialForm)
+    setForm({
+      ...initialForm,
+      branch_id: branchFilterId || (user?.branchId ? String(user.branchId) : ''),
+    })
     setSuccess('')
     setError('')
     setIsDeleteModalOpen(false)
@@ -354,7 +403,7 @@ function UsersPage() {
       setForm(initialForm)
       setIsDeleteModalOpen(false)
       setIsFormOpen(false)
-      await loadRows()
+      await loadRows(branchFilterId)
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Unable to delete user record.')
     } finally {
@@ -387,6 +436,11 @@ function UsersPage() {
       return
     }
 
+    if (!form.branch_id) {
+      setError('Branch is required.')
+      return
+    }
+
     if (!editingId && !form.password.trim()) {
       setError('Password is required for new users.')
       return
@@ -401,6 +455,7 @@ function UsersPage() {
         role: form.role,
         full_name: form.full_name,
         ACTIVE: form.ACTIVE,
+        branch_id: Number(form.branch_id),
         PAGE_ACCESS_JSON: {
           dashboardX: form.ACCESS_DASHBOARD_X,
           auditLogs: form.ACCESS_AUDIT_LOGS,
@@ -411,6 +466,7 @@ function UsersPage() {
           machineTerminalRegistration: form.ACCESS_MACHINE_TERMINAL_REGISTRATION,
           damageReports: form.ACCESS_DAMAGE_REPORTS,
           procurement: form.ACCESS_PROCUREMENT,
+          branches: form.ACCESS_BRANCHES,
         },
       }
 
@@ -437,7 +493,7 @@ function UsersPage() {
       setEditingId(null)
       setForm(initialForm)
       setIsFormOpen(false)
-      await loadRows()
+      await loadRows(branchFilterId)
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Unable to save user record.')
     } finally {
@@ -464,7 +520,22 @@ function UsersPage() {
             </div>
 
             <div className="audit-card-actions">
-              <button className="topbar-button topbar-button--ghost" type="button" onClick={() => void loadRows()}>
+              <label className="field" style={{ marginBottom: 0, minWidth: 220 }}>
+                <span style={{ display: 'block', fontSize: 12, marginBottom: 4, opacity: 0.8 }}>Branch</span>
+                <select
+                  value={branchFilterId}
+                  onChange={(event) => setBranchFilterId(event.target.value)}
+                  aria-label="Filter users by branch"
+                >
+                  <option value="">All branches</option>
+                  {branches.map((branch) => (
+                    <option key={branch.branch_id} value={branch.branch_id}>
+                      {branch.branch_name} ({branch.branch_code})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="topbar-button topbar-button--ghost" type="button" onClick={() => void loadRows(branchFilterId)}>
                 <ButtonLabel icon="reload">Reload</ButtonLabel>
               </button>
               <button className="topbar-button" type="button" onClick={handleAddNew}>
@@ -485,6 +556,7 @@ function UsersPage() {
                     <th>Avatar</th>
                     <th>Username / Name</th>
                     <th>Role</th>
+                    <th>Branch</th>
                     <th>Status</th>
                     <th>Permissions</th>
                     <th>Created At</th>
@@ -509,6 +581,7 @@ function UsersPage() {
                           <div>{row.full_name || ''}</div>
                         </td>
                         <td>{row.role}</td>
+                        <td>{row.branch_name || row.branch_code || row.branch_id}</td>
                         <td>{row.ACTIVE ? 'Active' : 'Inactive'}</td>
                         <td>
                           {permissionLabels.length === 0 ? (
@@ -580,6 +653,17 @@ function UsersPage() {
                     {roles.map((role) => (
                       <option key={role} value={role}>
                         {role}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="branch_id">Branch</label>
+                  <select id="branch_id" name="branch_id" value={form.branch_id} onChange={handleChange}>
+                    <option value="">Select branch</option>
+                    {branches.map((branch) => (
+                      <option key={branch.branch_id} value={branch.branch_id}>
+                        {branch.branch_name} ({branch.branch_code})
                       </option>
                     ))}
                   </select>
@@ -682,6 +766,20 @@ function UsersPage() {
                           name="ACCESS_PROCUREMENT"
                           type="checkbox"
                           checked={form.ACCESS_PROCUREMENT}
+                          onChange={handleChange}
+                        />
+                        <span className="user-toggle-slider" aria-hidden="true" />
+                      </label>
+                    </div>
+
+                    <div className="user-toggle-row">
+                      <label htmlFor="ACCESS_BRANCHES">Branches</label>
+                      <label className="user-toggle-switch" aria-label="Toggle branches permission">
+                        <input
+                          id="ACCESS_BRANCHES"
+                          name="ACCESS_BRANCHES"
+                          type="checkbox"
+                          checked={form.ACCESS_BRANCHES}
                           onChange={handleChange}
                         />
                         <span className="user-toggle-slider" aria-hidden="true" />

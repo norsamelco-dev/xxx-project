@@ -1,5 +1,6 @@
 const express = require('express');
 const requireAuth = require('../middleware/requireAuth');
+const requireBranchContext = require('../middleware/requireBranchContext');
 const {
   listSalesSeries,
   listSalesTransactionsBySeries,
@@ -9,10 +10,12 @@ const {
 const router = express.Router();
 
 router.use(requireAuth);
+router.use(requireBranchContext);
 
 router.get('/series', async (request, response) => {
   try {
     const result = await listSalesSeries({
+      branchId: request.branchId,
       startDate: request.query.start_date,
       endDate: request.query.end_date,
       search: request.query.search,
@@ -32,7 +35,7 @@ router.get('/series', async (request, response) => {
 router.get('/series/:seriesNo/transactions', async (request, response) => {
   try {
     const seriesNo = String(request.params.seriesNo || '');
-    const data = await listSalesTransactionsBySeries(seriesNo);
+    const data = await listSalesTransactionsBySeries(seriesNo, request.branchId);
 
     response.json({
       data,
@@ -47,7 +50,7 @@ router.get('/series/:seriesNo/transactions', async (request, response) => {
 
 router.get('/transactions/:orsi/items', async (request, response) => {
   try {
-    const data = await listSalesItemsByTransaction(request.params.orsi);
+    const data = await listSalesItemsByTransaction(request.params.orsi, request.branchId);
 
     response.json({
       data,

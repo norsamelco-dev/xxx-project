@@ -93,9 +93,8 @@ async function saveProductImageAsWebp(file, productId) {
   return `${PRODUCT_IMAGES_PUBLIC_PREFIX}${fileName}`;
 }
 
-async function listProducts() {
-  const [rows] = await getPool().query(
-    `SELECT product_id,
+function productSelectSql() {
+  return `SELECT product_id,
             product_barcode,
             product_name,
             category,
@@ -105,54 +104,69 @@ async function listProducts() {
               SELECT COALESCE(SUM(pb.Qty), 0)
               FROM product_batches pb
               WHERE pb.product_barcode = products.product_barcode
+                AND pb.branch_id = products.branch_id
             ) AS qty,
             unit,
             rop,
-            created_at
-     FROM products
+            created_at,
+            branch_id
+     FROM products`;
+}
+
+async function listProducts(branchId) {
+  const [rows] = await getPool().query(
+    `${productSelectSql()}
+     WHERE branch_id = ?
      ORDER BY product_id DESC`,
+    [branchId],
   );
 
   return rows;
 }
 
-async function listCategories() {
+async function listCategories(branchId) {
   const [rows] = await getPool().query(
     `SELECT DISTINCT category
      FROM products
-     WHERE category IS NOT NULL
+     WHERE branch_id = ?
+       AND category IS NOT NULL
        AND TRIM(category) <> ''
      ORDER BY category ASC`,
+    [branchId],
   );
 
   return rows.map((row) => row.category);
 }
 
-async function listBrands() {
+async function listBrands(branchId) {
   const [rows] = await getPool().query(
     `SELECT DISTINCT brand
      FROM products
-     WHERE brand IS NOT NULL
+     WHERE branch_id = ?
+       AND brand IS NOT NULL
        AND TRIM(brand) <> ''
      ORDER BY brand ASC`,
+    [branchId],
   );
 
   return rows.map((row) => row.brand);
 }
 
-async function listUnits() {
+async function listUnits(branchId) {
   const [rows] = await getPool().query(
     `SELECT DISTINCT unit
      FROM products
-     WHERE unit IS NOT NULL
+     WHERE branch_id = ?
+       AND unit IS NOT NULL
        AND TRIM(unit) <> ''
      ORDER BY unit ASC`,
+    [branchId],
   );
 
   return rows.map((row) => row.unit);
 }
 
-async function findProductByBarcode(productBarcode, excludeProductId = null) {
+async function findProductByBarcode(productBarcode, branchId, excludeProductId = null) {
   const normalizedBarcode = normalizeText(productBarcode);
 
   if (!normalizedBarcode) {
@@ -162,10 +176,11 @@ async function findProductByBarcode(productBarcode, excludeProductId = null) {
   const queryParts = [
     `SELECT product_id, product_barcode
      FROM products
-     WHERE product_barcode = ?`,
+     WHERE product_barcode = ?
+       AND branch_id = ?`,
   ];
 
-  const params = [normalizedBarcode];
+  const params = [normalizedBarcode, branchId];
 
   if (excludeProductId !== null && excludeProductId !== undefined) {
     queryParts.push('AND product_id <> ?');
@@ -178,7 +193,7 @@ async function findProductByBarcode(productBarcode, excludeProductId = null) {
   return rows[0] || null;
 }
 
-async function createProduct(payload, productImageFile = null) {
+async function createProduct(branchId, payload, productImageFile = null) {
   const normalized = normalizePayload(payload || {});
   const pool = getPool();
   const connection = await pool.getConnection();
@@ -189,8 +204,8 @@ async function createProduct(payload, productImageFile = null) {
 
     const [result] = await connection.query(
       `INSERT INTO products
-        (product_barcode, product_name, category, brand, unit, rop, product_image_path, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, NOW())`,
+        (product_barcode, product_name, category, brand, unit, rop, product_image_path, created_at, branch_id)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, NOW(), ?)`,
       [
         normalized.product_barcode,
         normalized.product_name,
@@ -198,6 +213,7 @@ async function createProduct(payload, productImageFile = null) {
         normalized.brand,
         normalized.unit,
         normalized.rop,
+        branchId,
       ],
     );
 
@@ -207,29 +223,17 @@ async function createProduct(payload, productImageFile = null) {
       await connection.query(
         `UPDATE products
          SET product_image_path = ?
-         WHERE product_id = ?`,
-        [createdImagePath, result.insertId],
+         WHERE product_id = ?
+           AND branch_id = ?`,
+        [createdImagePath, result.insertId, branchId],
       );
     }
 
     const [rows] = await connection.query(
-      `SELECT product_id,
-              product_barcode,
-              product_name,
-              category,
-              brand,
-              product_image_path,
-              (
-                SELECT COALESCE(SUM(pb.Qty), 0)
-                FROM product_batches pb
-                WHERE pb.product_barcode = products.product_barcode
-              ) AS qty,
-              unit,
-              rop,
-              created_at
-       FROM products
-       WHERE product_id = ?`,
-      [result.insertId],
+      `${productSelectSql()}
+       WHERE product_id = ?
+         AND branch_id = ?`,
+      [result.insertId, branchId],
     );
 
     await connection.commit();
@@ -247,7 +251,7 @@ async function createProduct(payload, productImageFile = null) {
   }
 }
 
-async function updateProduct(id, payload, productImageFile = null) {
+async function updateProduct(branchId, id, payload, productImageFile = null) {
   const normalized = normalizePayload(payload || {});
   const pool = getPool();
   const connection = await pool.getConnection();
@@ -261,8 +265,9 @@ async function updateProduct(id, payload, productImageFile = null) {
       `SELECT product_id, product_image_path
        FROM products
        WHERE product_id = ?
+         AND branch_id = ?
        LIMIT 1`,
-      [id],
+      [id, branchId],
     );
 
     if (existingRows.length === 0) {
@@ -286,7 +291,8 @@ async function updateProduct(id, payload, productImageFile = null) {
            unit = ?,
            rop = ?,
            product_image_path = ?
-       WHERE product_id = ?`,
+       WHERE product_id = ?
+         AND branch_id = ?`,
       [
         normalized.product_barcode,
         normalized.product_name,
@@ -296,6 +302,7 @@ async function updateProduct(id, payload, productImageFile = null) {
         normalized.rop,
         nextImagePath,
         id,
+        branchId,
       ],
     );
 
@@ -310,23 +317,10 @@ async function updateProduct(id, payload, productImageFile = null) {
     }
 
     const [rows] = await connection.query(
-      `SELECT product_id,
-              product_barcode,
-              product_name,
-              category,
-              brand,
-              product_image_path,
-              (
-                SELECT COALESCE(SUM(pb.Qty), 0)
-                FROM product_batches pb
-                WHERE pb.product_barcode = products.product_barcode
-              ) AS qty,
-              unit,
-              rop,
-              created_at
-       FROM products
-       WHERE product_id = ?`,
-      [id],
+      `${productSelectSql()}
+       WHERE product_id = ?
+         AND branch_id = ?`,
+      [id, branchId],
     );
 
     await connection.commit();
@@ -349,7 +343,7 @@ async function updateProduct(id, payload, productImageFile = null) {
   }
 }
 
-async function deleteProduct(id) {
+async function deleteProduct(branchId, id) {
   const pool = getPool();
   const connection = await pool.getConnection();
   let productImagePath = null;
@@ -361,8 +355,9 @@ async function deleteProduct(id) {
       `SELECT product_id, product_barcode, product_image_path
        FROM products
        WHERE product_id = ?
+         AND branch_id = ?
        LIMIT 1`,
-      [id],
+      [id, branchId],
     );
 
     if (productRows.length === 0) {
@@ -374,10 +369,16 @@ async function deleteProduct(id) {
     productImagePath = productRows[0].product_image_path || null;
 
     if (productBarcode) {
-      await connection.query('DELETE FROM product_batches WHERE product_barcode = ?', [productBarcode]);
+      await connection.query(
+        'DELETE FROM product_batches WHERE product_barcode = ? AND branch_id = ?',
+        [productBarcode, branchId],
+      );
     }
 
-    const [result] = await connection.query('DELETE FROM products WHERE product_id = ?', [id]);
+    const [result] = await connection.query(
+      'DELETE FROM products WHERE product_id = ? AND branch_id = ?',
+      [id, branchId],
+    );
     await connection.commit();
 
     if (result.affectedRows > 0 && productImagePath) {

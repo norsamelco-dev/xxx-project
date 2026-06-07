@@ -41,7 +41,10 @@ export function buildConfigFromTerminal(
 ): PosConfig {
   return {
     terminal_name: terminal.terminal_name,
-    branch: terminal.branch || '',
+    branch: terminal.branch || terminal.branch_name || '',
+    branch_id: terminal.branch_id,
+    branch_code: terminal.branch_code,
+    branch_name: terminal.branch_name,
     serial_no: terminal.serial_no || '',
     ptu_no: terminal.ptu_no || '',
     min_number: normalizeMinNumber(terminal.min_number),
@@ -66,7 +69,10 @@ export function mergeTerminalIntoConfig(config: PosConfig, terminal: TerminalLoo
   return {
     ...config,
     terminal_name: terminal.terminal_name,
-    branch: terminal.branch || config.branch,
+    branch: terminal.branch || terminal.branch_name || config.branch,
+    branch_id: terminal.branch_id ?? config.branch_id,
+    branch_code: terminal.branch_code ?? config.branch_code,
+    branch_name: terminal.branch_name ?? config.branch_name,
     serial_no: terminal.serial_no || config.serial_no,
     ptu_no: terminal.ptu_no || config.ptu_no,
     min_number,

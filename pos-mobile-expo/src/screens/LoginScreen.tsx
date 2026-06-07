@@ -196,9 +196,8 @@ export default function LoginScreen({ navigation }: Props) {
     setError('')
 
     try {
-      await login(username, password)
       const config = await loadConfig()
-
+      await login(username, password, config?.terminal_name)
       if (config) {
         const terminal = await lookupTerminal(config.terminal_name)
         setCurrentOrn(terminal.current_or)

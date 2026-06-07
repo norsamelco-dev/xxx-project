@@ -11,6 +11,7 @@ type PageAccessKey =
   | 'machineTerminalRegistration'
   | 'damageReports'
   | 'procurement'
+  | 'branches'
 
 type ProtectedRouteProps = {
   requiredAccess?: PageAccessKey
@@ -23,6 +24,7 @@ const ACCESS_DESTINATIONS: Array<{ key: PageAccessKey; path: string }> = [
   { key: 'products', path: '/products' },
   { key: 'salesReport', path: '/sales-report' },
   { key: 'users', path: '/users' },
+  { key: 'branches', path: '/branches' },
   { key: 'receiptHeading', path: '/receipt-heading' },
   { key: 'machineTerminalRegistration', path: '/machine-terminal-registration' },
   { key: 'damageReports', path: '/damage-reports' },

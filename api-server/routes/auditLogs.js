@@ -1,5 +1,6 @@
 const express = require('express');
 const requireAuth = require('../middleware/requireAuth');
+const requireBranchContext = require('../middleware/requireBranchContext');
 const { recordClientAudit } = require('../controllers/auditController');
 const { listAuditLogs, listAuditLogUsers } = require('../services/auditLogsService');
 
@@ -20,10 +21,11 @@ router.post('/record', async (request, response) => {
 });
 
 router.use(requireAuth);
+router.use(requireBranchContext);
 
-router.get('/users', async (_request, response) => {
+router.get('/users', async (request, response) => {
   try {
-    const users = await listAuditLogUsers();
+    const users = await listAuditLogUsers(request.branchId);
 
     response.json({
       data: users,
@@ -38,7 +40,12 @@ router.get('/users', async (_request, response) => {
 router.get('/', async (request, response) => {
   try {
     const { start_date: startDate, end_date: endDate, username } = request.query;
-    const result = await listAuditLogs({ startDate, endDate, username });
+    const result = await listAuditLogs({
+      branchId: request.branchId,
+      startDate,
+      endDate,
+      username,
+    });
 
     response.json({
       data: result.rows,

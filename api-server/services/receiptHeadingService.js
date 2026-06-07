@@ -89,28 +89,30 @@ function normalizePayload(payload) {
   };
 }
 
-async function getReceiptHeading() {
+async function getReceiptHeading(branchId) {
   const [rows] = await getPool().query(
     `SELECT id, busi_name, busi_addr, busi_owner, busi_vat_type, busi_tin, vat_rate,
             developer, accreditation_no, valid_start, valid_until, softwareversion, contactdetail,
             business_logo_path, developer_logo_path,
-            print_logo_width, print_logo_align, print_logo_enabled
+            print_logo_width, print_logo_align, print_logo_enabled, branch_id
      FROM receipt_heading
+     WHERE branch_id = ?
      ORDER BY id ASC
      LIMIT 1`,
+    [branchId],
   );
 
   return rows[0] || null;
 }
 
-async function saveReceiptHeading(payload) {
+async function saveReceiptHeading(branchId, payload) {
   const normalized = normalizePayload(payload);
-  const existing = await getReceiptHeading();
+  const existing = await getReceiptHeading(branchId);
   const targetId = Number(payload.id) || existing?.id || null;
 
   if (targetId) {
     const values = editableFields.map((field) => normalized[field]);
-    values.push(targetId);
+    values.push(targetId, branchId);
 
     await getPool().query(
       `UPDATE receipt_heading
@@ -131,7 +133,8 @@ async function saveReceiptHeading(payload) {
            print_logo_width = ?,
            print_logo_align = ?,
            print_logo_enabled = ?
-       WHERE id = ?`,
+       WHERE id = ?
+         AND branch_id = ?`,
       values,
     );
   } else {
@@ -139,13 +142,13 @@ async function saveReceiptHeading(payload) {
       `INSERT INTO receipt_heading
        (busi_name, busi_addr, busi_owner, busi_vat_type, busi_tin, vat_rate,
         developer, accreditation_no, valid_start, valid_until, softwareversion, contactdetail,
-        business_logo_path, developer_logo_path, print_logo_width, print_logo_align, print_logo_enabled)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      editableFields.map((field) => normalized[field]),
+        business_logo_path, developer_logo_path, print_logo_width, print_logo_align, print_logo_enabled, branch_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [...editableFields.map((field) => normalized[field]), branchId],
     );
   }
 
-  return getReceiptHeading();
+  return getReceiptHeading(branchId);
 }
 
 module.exports = {

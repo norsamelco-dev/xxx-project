@@ -102,7 +102,7 @@ function requireReason(value, fieldName = 'reason') {
   return text;
 }
 
-async function buildDocumentNumber(connection, prefix, tableName, columnName) {
+async function buildDocumentNumber(connection, prefix, tableName, columnName, branchId) {
   const year = new Date().getFullYear();
   const docPrefix = `${prefix}-${year}-`;
   const startPos = docPrefix.length + 1;
@@ -110,15 +110,16 @@ async function buildDocumentNumber(connection, prefix, tableName, columnName) {
   const [rows] = await connection.query(
     `SELECT COALESCE(MAX(CAST(SUBSTRING(${columnName}, ?) AS UNSIGNED)), 0) AS max_sequence
      FROM ${tableName}
-     WHERE ${columnName} LIKE ?`,
-    [startPos, `${docPrefix}%`],
+     WHERE ${columnName} LIKE ?
+       AND branch_id = ?`,
+    [startPos, `${docPrefix}%`, branchId],
   );
 
   const nextSequence = Number(rows[0]?.max_sequence || 0) + 1;
   return `${docPrefix}${String(nextSequence).padStart(3, '0')}`;
 }
 
-async function buildBatchId(connection, inputBatchId, productBarcode) {
+async function buildBatchId(connection, inputBatchId, productBarcode, branchId) {
   const normalizedBatchId = normalizeText(inputBatchId);
   if (normalizedBatchId) {
     return normalizedBatchId;
@@ -134,9 +135,10 @@ async function buildBatchId(connection, inputBatchId, productBarcode) {
     `SELECT COUNT(DISTINCT batch_id) AS batchCount
      FROM product_batches
      WHERE product_barcode = ?
+       AND branch_id = ?
        AND batch_id IS NOT NULL
        AND TRIM(batch_id) <> ''`,
-    [normalizedBarcode],
+    [normalizedBarcode, branchId],
   );
 
   const count = Number(rows[0]?.batchCount || 0);
@@ -373,7 +375,7 @@ async function ensureProcurementTables(connection) {
   );
 }
 
-async function getProductByLookup(connection, lookup) {
+async function getProductByLookup(connection, lookup, branchId) {
   const normalized = normalizeText(lookup);
   if (!normalized) {
     const error = new Error('Product lookup value is required.');
@@ -384,12 +386,13 @@ async function getProductByLookup(connection, lookup) {
   const [rows] = await connection.query(
     `SELECT p.product_id, p.product_barcode, p.product_name, p.unit, COALESCE(p.rop, 0) AS rop
      FROM products p
-     WHERE p.product_barcode = ?
+     WHERE p.branch_id = ?
+       AND (p.product_barcode = ?
         OR p.product_barcode LIKE CONCAT(?, '%')
-        OR p.product_name LIKE CONCAT('%', ?, '%')
+        OR p.product_name LIKE CONCAT('%', ?, '%'))
      ORDER BY CASE WHEN p.product_barcode = ? THEN 0 ELSE 1 END, p.product_name ASC
      LIMIT 1`,
-    [normalized, normalized, normalized, normalized],
+    [branchId, normalized, normalized, normalized, normalized],
   );
 
   if (!rows.length) {
@@ -409,13 +412,13 @@ async function getProductByLookup(connection, lookup) {
   };
 }
 
-async function getSupplierById(connection, supplierId, { forUpdate = false } = {}) {
+async function getSupplierById(connection, supplierId, { forUpdate = false, branchId } = {}) {
   const lockClause = forUpdate ? ' FOR UPDATE' : '';
   const [rows] = await connection.query(
     `SELECT id, supplier_name, contact_person, contact_phone, contact_email,
             payment_terms, address, is_active, created_at, updated_at
-     FROM ${SUPPLIERS_TABLE} WHERE id = ?${lockClause}`,
-    [supplierId],
+     FROM ${SUPPLIERS_TABLE} WHERE id = ? AND branch_id = ?${lockClause}`,
+    [supplierId, branchId],
   );
   return rows[0] || null;
 }
@@ -435,7 +438,7 @@ function mapSupplierRow(row) {
   };
 }
 
-async function listReorderAlerts() {
+async function listReorderAlerts(branchId) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
@@ -451,12 +454,15 @@ async function listReorderAlerts() {
        SELECT pb.product_barcode, COALESCE(SUM(COALESCE(pb.Qty, 0)), 0) AS total_qty
        FROM product_batches pb
        WHERE COALESCE(pb.Block, 0) = 0
+         AND pb.branch_id = ?
        GROUP BY pb.product_barcode
      ) stock ON stock.product_barcode = p.product_barcode
-     WHERE COALESCE(stock.total_qty, 0) <= COALESCE(p.rop, 0)
+     WHERE p.branch_id = ?
+       AND COALESCE(stock.total_qty, 0) <= COALESCE(p.rop, 0)
        AND p.product_barcode IS NOT NULL
        AND TRIM(p.product_barcode) <> ''
      ORDER BY p.product_name ASC`,
+    [branchId, branchId],
   );
 
   return rows.map((row) => ({
@@ -469,12 +475,12 @@ async function listReorderAlerts() {
   }));
 }
 
-async function listSuppliers({ activeOnly = true, search } = {}) {
+async function listSuppliers({ branchId, activeOnly = true, search } = {}) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
-  const conditions = [];
-  const params = [];
+  const conditions = ['branch_id = ?'];
+  const params = [branchId];
 
   if (activeOnly) {
     conditions.push('is_active = 1');
@@ -501,7 +507,7 @@ async function listSuppliers({ activeOnly = true, search } = {}) {
   return rows.map(mapSupplierRow);
 }
 
-async function createSupplier(payload = {}) {
+async function createSupplier(payload = {}, branchId) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
@@ -514,8 +520,8 @@ async function createSupplier(payload = {}) {
 
   const [result] = await pool.query(
     `INSERT INTO ${SUPPLIERS_TABLE}
-      (supplier_name, contact_person, contact_phone, contact_email, payment_terms, address, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      (supplier_name, contact_person, contact_phone, contact_email, payment_terms, address, is_active, branch_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       supplierName,
       normalizeText(payload.contact_person),
@@ -524,19 +530,20 @@ async function createSupplier(payload = {}) {
       normalizeText(payload.payment_terms) || 'Net 30',
       normalizeText(payload.address),
       payload.is_active === undefined || payload.is_active === null ? 1 : (payload.is_active ? 1 : 0),
+      branchId,
     ],
   );
 
-  const supplier = await getSupplierById(pool, result.insertId);
+  const supplier = await getSupplierById(pool, result.insertId, { branchId });
   return mapSupplierRow(supplier);
 }
 
-async function updateSupplier(id, payload = {}) {
+async function updateSupplier(id, payload = {}, branchId) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
   const supplierId = normalizeInteger(id, 'supplier_id', { min: 1 });
-  const existing = await getSupplierById(pool, supplierId);
+  const existing = await getSupplierById(pool, supplierId, { branchId });
 
   if (!existing) {
     const error = new Error('Supplier not found.');
@@ -574,10 +581,10 @@ async function updateSupplier(id, payload = {}) {
     return mapSupplierRow(existing);
   }
 
-  params.push(supplierId);
-  await pool.query(`UPDATE ${SUPPLIERS_TABLE} SET ${updates.join(', ')} WHERE id = ?`, params);
+  params.push(supplierId, branchId);
+  await pool.query(`UPDATE ${SUPPLIERS_TABLE} SET ${updates.join(', ')} WHERE id = ? AND branch_id = ?`, params);
 
-  const updated = await getSupplierById(pool, supplierId);
+  const updated = await getSupplierById(pool, supplierId, { branchId });
   return mapSupplierRow(updated);
 }
 
@@ -621,14 +628,15 @@ function mapPrItemRow(row) {
   };
 }
 
-async function getPrById(connection, prId, { forUpdate = false } = {}) {
+async function getPrById(connection, prId, { forUpdate = false, branchId } = {}) {
   const lockClause = forUpdate ? ' FOR UPDATE' : '';
   const [rows] = await connection.query(
     `SELECT pr.*, s.supplier_name AS preferred_supplier_name
      FROM ${PR_TABLE} pr
-     LEFT JOIN ${SUPPLIERS_TABLE} s ON s.id = pr.preferred_supplier_id
-     WHERE pr.id = ?${lockClause}`,
-    [prId],
+     LEFT JOIN ${SUPPLIERS_TABLE} s ON s.id = pr.preferred_supplier_id AND s.branch_id = pr.branch_id
+     WHERE pr.id = ?
+       AND pr.branch_id = ?${lockClause}`,
+    [prId, branchId],
   );
   return rows[0] || null;
 }
@@ -645,8 +653,8 @@ async function getPrItems(connection, prId) {
   return rows.map(mapPrItemRow);
 }
 
-async function assertDraftPr(connection, prId) {
-  const pr = await getPrById(connection, prId, { forUpdate: true });
+async function assertDraftPr(connection, prId, branchId) {
+  const pr = await getPrById(connection, prId, { forUpdate: true, branchId });
   if (!pr) {
     const error = new Error('Purchase requisition not found.');
     error.statusCode = 404;
@@ -660,7 +668,7 @@ async function assertDraftPr(connection, prId) {
   return pr;
 }
 
-async function normalizePrItems(connection, items) {
+async function normalizePrItems(connection, items, branchId) {
   if (!Array.isArray(items) || !items.length) {
     const error = new Error('At least one requisition item is required.');
     error.statusCode = 400;
@@ -671,7 +679,7 @@ async function normalizePrItems(connection, items) {
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index];
     const lookup = normalizeText(item.lookup) || normalizeText(item.product_barcode);
-    const product = await getProductByLookup(connection, lookup);
+    const product = await getProductByLookup(connection, lookup, branchId);
     const qtyRequested = normalizeInteger(item.qty_requested, `items[${index}].qty_requested`, { min: 1 });
     normalized.push({
       product_id: product.product_id,
@@ -702,8 +710,9 @@ async function listRequisitions(filters = {}) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
-  const conditions = [];
-  const params = [];
+  const branchId = filters.branchId;
+  const conditions = ['pr.branch_id = ?'];
+  const params = [branchId];
   const status = normalizeText(filters.status);
   const search = normalizeText(filters.search);
   const dateFrom = normalizeDateFilter(filters.date_from || filters.dateFrom, 'date_from');
@@ -756,11 +765,11 @@ async function listRequisitions(filters = {}) {
   return rows.map(mapPrRow);
 }
 
-async function getRequisition(id) {
+async function getRequisition(id, branchId) {
   const pool = getPool();
   await ensureProcurementTables(pool);
   const prId = normalizeInteger(id, 'requisition_id', { min: 1 });
-  const pr = await getPrById(pool, prId);
+  const pr = await getPrById(pool, prId, { branchId });
   if (!pr) {
     const error = new Error('Purchase requisition not found.');
     error.statusCode = 404;
@@ -770,7 +779,7 @@ async function getRequisition(id) {
   return { ...mapPrRow({ ...pr, item_count: items.length }), items };
 }
 
-async function createRequisition(payload = {}, sessionUser) {
+async function createRequisition(payload = {}, sessionUser, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const identity = getSessionIdentity(sessionUser);
@@ -779,14 +788,14 @@ async function createRequisition(payload = {}, sessionUser) {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
 
-    const items = await normalizePrItems(connection, payload.items);
-    const prNumber = await buildDocumentNumber(connection, 'PR', PR_TABLE, 'pr_number');
+    const items = await normalizePrItems(connection, payload.items, branchId);
+    const prNumber = await buildDocumentNumber(connection, 'PR', PR_TABLE, 'pr_number', branchId);
     const preferredSupplierId = payload.preferred_supplier_id !== undefined && payload.preferred_supplier_id !== null
       ? normalizeInteger(payload.preferred_supplier_id, 'preferred_supplier_id', { min: 1 })
       : null;
 
     if (preferredSupplierId) {
-      const supplier = await getSupplierById(connection, preferredSupplierId);
+      const supplier = await getSupplierById(connection, preferredSupplierId, { branchId });
       if (!supplier) {
         const error = new Error('Preferred supplier not found.');
         error.statusCode = 404;
@@ -796,14 +805,14 @@ async function createRequisition(payload = {}, sessionUser) {
 
     const [result] = await connection.query(
       `INSERT INTO ${PR_TABLE}
-        (pr_number, status, preferred_supplier_id, remarks, created_by_user_id, created_by_username)
-       VALUES (?, 'draft', ?, ?, ?, ?)`,
-      [prNumber, preferredSupplierId, normalizeText(payload.remarks), identity.userId, identity.username],
+        (pr_number, status, preferred_supplier_id, remarks, created_by_user_id, created_by_username, branch_id)
+       VALUES (?, 'draft', ?, ?, ?, ?, ?)`,
+      [prNumber, preferredSupplierId, normalizeText(payload.remarks), identity.userId, identity.username, branchId],
     );
 
     await replacePrItems(connection, result.insertId, items);
     await connection.commit();
-    return getRequisition(result.insertId);
+    return getRequisition(result.insertId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -812,7 +821,7 @@ async function createRequisition(payload = {}, sessionUser) {
   }
 }
 
-async function updateRequisition(id, payload = {}) {
+async function updateRequisition(id, payload = {}, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const prId = normalizeInteger(id, 'requisition_id', { min: 1 });
@@ -820,34 +829,34 @@ async function updateRequisition(id, payload = {}) {
   try {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
-    await assertDraftPr(connection, prId);
+    await assertDraftPr(connection, prId, branchId);
 
     if (payload.preferred_supplier_id !== undefined) {
       const supplierId = payload.preferred_supplier_id === null
         ? null
         : normalizeInteger(payload.preferred_supplier_id, 'preferred_supplier_id', { min: 1 });
       if (supplierId) {
-        const supplier = await getSupplierById(connection, supplierId);
+        const supplier = await getSupplierById(connection, supplierId, { branchId });
         if (!supplier) {
           const error = new Error('Preferred supplier not found.');
           error.statusCode = 404;
           throw error;
         }
       }
-      await connection.query(`UPDATE ${PR_TABLE} SET preferred_supplier_id = ? WHERE id = ?`, [supplierId, prId]);
+      await connection.query(`UPDATE ${PR_TABLE} SET preferred_supplier_id = ? WHERE id = ? AND branch_id = ?`, [supplierId, prId, branchId]);
     }
 
     if (payload.remarks !== undefined) {
-      await connection.query(`UPDATE ${PR_TABLE} SET remarks = ? WHERE id = ?`, [normalizeText(payload.remarks), prId]);
+      await connection.query(`UPDATE ${PR_TABLE} SET remarks = ? WHERE id = ? AND branch_id = ?`, [normalizeText(payload.remarks), prId, branchId]);
     }
 
     if (payload.items !== undefined) {
-      const items = await normalizePrItems(connection, payload.items);
+      const items = await normalizePrItems(connection, payload.items, branchId);
       await replacePrItems(connection, prId, items);
     }
 
     await connection.commit();
-    return getRequisition(prId);
+    return getRequisition(prId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -856,7 +865,7 @@ async function updateRequisition(id, payload = {}) {
   }
 }
 
-async function deleteRequisition(id) {
+async function deleteRequisition(id, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const prId = normalizeInteger(id, 'requisition_id', { min: 1 });
@@ -864,9 +873,9 @@ async function deleteRequisition(id) {
   try {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
-    await assertDraftPr(connection, prId);
+    await assertDraftPr(connection, prId, branchId);
     await connection.query(`DELETE FROM ${PR_ITEMS_TABLE} WHERE purchase_requisition_id = ?`, [prId]);
-    await connection.query(`DELETE FROM ${PR_TABLE} WHERE id = ?`, [prId]);
+    await connection.query(`DELETE FROM ${PR_TABLE} WHERE id = ? AND branch_id = ?`, [prId, branchId]);
     await connection.commit();
     return { deleted: true };
   } catch (error) {
@@ -877,7 +886,7 @@ async function deleteRequisition(id) {
   }
 }
 
-async function submitRequisition(id) {
+async function submitRequisition(id, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const prId = normalizeInteger(id, 'requisition_id', { min: 1 });
@@ -885,7 +894,7 @@ async function submitRequisition(id) {
   try {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
-    const pr = await assertDraftPr(connection, prId);
+    await assertDraftPr(connection, prId, branchId);
     const items = await getPrItems(connection, prId);
 
     if (!items.length) {
@@ -898,12 +907,13 @@ async function submitRequisition(id) {
       `UPDATE ${PR_TABLE}
        SET status = 'submitted', submitted_at = NOW(), rejection_reason = NULL,
            rejected_by_user_id = NULL, rejected_by_username = NULL, rejected_at = NULL
-       WHERE id = ?`,
-      [prId],
+       WHERE id = ?
+         AND branch_id = ?`,
+      [prId, branchId],
     );
 
     await connection.commit();
-    return getRequisition(prId);
+    return getRequisition(prId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -912,7 +922,7 @@ async function submitRequisition(id) {
   }
 }
 
-async function approveRequisition(id, sessionUser) {
+async function approveRequisition(id, sessionUser, branchId) {
   assertApprover(sessionUser);
   const pool = getPool();
   const connection = await pool.getConnection();
@@ -922,7 +932,7 @@ async function approveRequisition(id, sessionUser) {
   try {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
-    const pr = await getPrById(connection, prId, { forUpdate: true });
+    const pr = await getPrById(connection, prId, { forUpdate: true, branchId });
 
     if (!pr) {
       const error = new Error('Purchase requisition not found.');
@@ -939,12 +949,13 @@ async function approveRequisition(id, sessionUser) {
       `UPDATE ${PR_TABLE}
        SET status = 'approved', approved_by_user_id = ?, approved_by_username = ?, approved_at = NOW(),
            rejection_reason = NULL, rejected_by_user_id = NULL, rejected_by_username = NULL, rejected_at = NULL
-       WHERE id = ?`,
-      [identity.userId, identity.username, prId],
+       WHERE id = ?
+         AND branch_id = ?`,
+      [identity.userId, identity.username, prId, branchId],
     );
 
     await connection.commit();
-    return getRequisition(prId);
+    return getRequisition(prId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -953,7 +964,7 @@ async function approveRequisition(id, sessionUser) {
   }
 }
 
-async function rejectRequisition(id, payload = {}, sessionUser) {
+async function rejectRequisition(id, payload = {}, sessionUser, branchId) {
   assertApprover(sessionUser);
   const reason = requireReason(payload.reason || payload.rejection_reason, 'rejection_reason');
   const pool = getPool();
@@ -964,7 +975,7 @@ async function rejectRequisition(id, payload = {}, sessionUser) {
   try {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
-    const pr = await getPrById(connection, prId, { forUpdate: true });
+    const pr = await getPrById(connection, prId, { forUpdate: true, branchId });
 
     if (!pr) {
       const error = new Error('Purchase requisition not found.');
@@ -980,12 +991,13 @@ async function rejectRequisition(id, payload = {}, sessionUser) {
     await connection.query(
       `UPDATE ${PR_TABLE}
        SET status = 'rejected', rejection_reason = ?, rejected_by_user_id = ?, rejected_by_username = ?, rejected_at = NOW()
-       WHERE id = ?`,
-      [reason, identity.userId, identity.username, prId],
+       WHERE id = ?
+         AND branch_id = ?`,
+      [reason, identity.userId, identity.username, prId, branchId],
     );
 
     await connection.commit();
-    return getRequisition(prId);
+    return getRequisition(prId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -994,7 +1006,7 @@ async function rejectRequisition(id, payload = {}, sessionUser) {
   }
 }
 
-async function resubmitRequisition(id) {
+async function resubmitRequisition(id, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const prId = normalizeInteger(id, 'requisition_id', { min: 1 });
@@ -1002,7 +1014,7 @@ async function resubmitRequisition(id) {
   try {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
-    const pr = await getPrById(connection, prId, { forUpdate: true });
+    const pr = await getPrById(connection, prId, { forUpdate: true, branchId });
 
     if (!pr) {
       const error = new Error('Purchase requisition not found.');
@@ -1026,12 +1038,13 @@ async function resubmitRequisition(id) {
       `UPDATE ${PR_TABLE}
        SET status = 'submitted', submitted_at = NOW(), rejection_reason = NULL,
            rejected_by_user_id = NULL, rejected_by_username = NULL, rejected_at = NULL
-       WHERE id = ?`,
-      [prId],
+       WHERE id = ?
+         AND branch_id = ?`,
+      [prId, branchId],
     );
 
     await connection.commit();
-    return getRequisition(prId);
+    return getRequisition(prId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1083,15 +1096,16 @@ function mapPoItemRow(row) {
   };
 }
 
-async function getPoById(connection, poId, { forUpdate = false } = {}) {
+async function getPoById(connection, poId, { forUpdate = false, branchId } = {}) {
   const lockClause = forUpdate ? ' FOR UPDATE' : '';
   const [rows] = await connection.query(
     `SELECT po.*, pr.pr_number, s.supplier_name
      FROM ${PO_TABLE} po
-     LEFT JOIN ${PR_TABLE} pr ON pr.id = po.purchase_requisition_id
-     LEFT JOIN ${SUPPLIERS_TABLE} s ON s.id = po.supplier_id
-     WHERE po.id = ?${lockClause}`,
-    [poId],
+     LEFT JOIN ${PR_TABLE} pr ON pr.id = po.purchase_requisition_id AND pr.branch_id = po.branch_id
+     LEFT JOIN ${SUPPLIERS_TABLE} s ON s.id = po.supplier_id AND s.branch_id = po.branch_id
+     WHERE po.id = ?
+       AND po.branch_id = ?${lockClause}`,
+    [poId, branchId],
   );
   return rows[0] || null;
 }
@@ -1106,8 +1120,8 @@ async function getPoItems(connection, poId) {
   return rows.map(mapPoItemRow);
 }
 
-async function assertDraftPo(connection, poId) {
-  const po = await getPoById(connection, poId, { forUpdate: true });
+async function assertDraftPo(connection, poId, branchId) {
+  const po = await getPoById(connection, poId, { forUpdate: true, branchId });
   if (!po) {
     const error = new Error('Purchase order not found.');
     error.statusCode = 404;
@@ -1125,8 +1139,9 @@ async function listOrders(filters = {}) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
-  const conditions = [];
-  const params = [];
+  const branchId = filters.branchId;
+  const conditions = ['po.branch_id = ?'];
+  const params = [branchId];
   const status = normalizeText(filters.status);
   const search = normalizeText(filters.search);
   const supplierId = filters.supplier_id !== undefined && filters.supplier_id !== null && filters.supplier_id !== ''
@@ -1171,11 +1186,11 @@ async function listOrders(filters = {}) {
   return rows.map(mapPoRow);
 }
 
-async function getOrder(id) {
+async function getOrder(id, branchId) {
   const pool = getPool();
   await ensureProcurementTables(pool);
   const poId = normalizeInteger(id, 'order_id', { min: 1 });
-  const po = await getPoById(pool, poId);
+  const po = await getPoById(pool, poId, { branchId });
   if (!po) {
     const error = new Error('Purchase order not found.');
     error.statusCode = 404;
@@ -1185,7 +1200,7 @@ async function getOrder(id) {
   return { ...mapPoRow({ ...po, item_count: items.length }), items };
 }
 
-async function createOrderFromPr(prId, payload = {}, sessionUser) {
+async function createOrderFromPr(prId, payload = {}, sessionUser, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const requisitionId = normalizeInteger(prId, 'requisition_id', { min: 1 });
@@ -1195,7 +1210,7 @@ async function createOrderFromPr(prId, payload = {}, sessionUser) {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
 
-    const pr = await getPrById(connection, requisitionId, { forUpdate: true });
+    const pr = await getPrById(connection, requisitionId, { forUpdate: true, branchId });
     if (!pr) {
       const error = new Error('Purchase requisition not found.');
       error.statusCode = 404;
@@ -1217,7 +1232,7 @@ async function createOrderFromPr(prId, payload = {}, sessionUser) {
       throw error;
     }
 
-    const supplier = await getSupplierById(connection, supplierId);
+    const supplier = await getSupplierById(connection, supplierId, { branchId });
     if (!supplier) {
       const error = new Error('Supplier not found.');
       error.statusCode = 404;
@@ -1231,7 +1246,7 @@ async function createOrderFromPr(prId, payload = {}, sessionUser) {
       throw error;
     }
 
-    const poNumber = await buildDocumentNumber(connection, 'PO', PO_TABLE, 'po_number');
+    const poNumber = await buildDocumentNumber(connection, 'PO', PO_TABLE, 'po_number', branchId);
     const expectedDeliveryDate = normalizeOptionalDate(payload.expected_delivery_date, 'expected_delivery_date');
     const costByPrItemId = new Map();
 
@@ -1244,9 +1259,9 @@ async function createOrderFromPr(prId, payload = {}, sessionUser) {
 
     const [poResult] = await connection.query(
       `INSERT INTO ${PO_TABLE}
-        (po_number, purchase_requisition_id, supplier_id, status, expected_delivery_date, created_by_user_id, created_by_username)
-       VALUES (?, ?, ?, 'draft', ?, ?, ?)`,
-      [poNumber, requisitionId, supplierId, expectedDeliveryDate, identity.userId, identity.username],
+        (po_number, purchase_requisition_id, supplier_id, status, expected_delivery_date, created_by_user_id, created_by_username, branch_id)
+       VALUES (?, ?, ?, 'draft', ?, ?, ?, ?)`,
+      [poNumber, requisitionId, supplierId, expectedDeliveryDate, identity.userId, identity.username, branchId],
     );
 
     const poId = poResult.insertId;
@@ -1261,14 +1276,14 @@ async function createOrderFromPr(prId, payload = {}, sessionUser) {
       await connection.query(
         `INSERT INTO ${PO_ITEMS_TABLE}
           (purchase_order_id, purchase_requisition_item_id, product_id, product_name, sku, product_barcode,
-           qty_ordered, qty_received, unit_cost, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-        [poId, prItem.id, prItem.product_id, prItem.product_name, prItem.sku, prItem.product_barcode, prItem.qty_requested, unitCost, prItem.sort_order],
+           qty_ordered, qty_received, unit_cost, sort_order, branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+        [poId, prItem.id, prItem.product_id, prItem.product_name, prItem.sku, prItem.product_barcode, prItem.qty_requested, unitCost, prItem.sort_order, branchId],
       );
     }
 
     await connection.commit();
-    return getOrder(poId);
+    return getOrder(poId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1277,7 +1292,7 @@ async function createOrderFromPr(prId, payload = {}, sessionUser) {
   }
 }
 
-async function updateOrder(id, payload = {}) {
+async function updateOrder(id, payload = {}, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const poId = normalizeInteger(id, 'order_id', { min: 1 });
@@ -1285,24 +1300,24 @@ async function updateOrder(id, payload = {}) {
   try {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
-    await assertDraftPo(connection, poId);
+    await assertDraftPo(connection, poId, branchId);
 
     if (payload.expected_delivery_date !== undefined) {
       await connection.query(
-        `UPDATE ${PO_TABLE} SET expected_delivery_date = ? WHERE id = ?`,
-        [normalizeOptionalDate(payload.expected_delivery_date, 'expected_delivery_date'), poId],
+        `UPDATE ${PO_TABLE} SET expected_delivery_date = ? WHERE id = ? AND branch_id = ?`,
+        [normalizeOptionalDate(payload.expected_delivery_date, 'expected_delivery_date'), poId, branchId],
       );
     }
 
     if (payload.supplier_id !== undefined) {
       const supplierId = normalizeInteger(payload.supplier_id, 'supplier_id', { min: 1 });
-      const supplier = await getSupplierById(connection, supplierId);
+      const supplier = await getSupplierById(connection, supplierId, { branchId });
       if (!supplier) {
         const error = new Error('Supplier not found.');
         error.statusCode = 404;
         throw error;
       }
-      await connection.query(`UPDATE ${PO_TABLE} SET supplier_id = ? WHERE id = ?`, [supplierId, poId]);
+      await connection.query(`UPDATE ${PO_TABLE} SET supplier_id = ? WHERE id = ? AND branch_id = ?`, [supplierId, poId, branchId]);
     }
 
     if (Array.isArray(payload.items)) {
@@ -1339,7 +1354,7 @@ async function updateOrder(id, payload = {}) {
     }
 
     await connection.commit();
-    return getOrder(poId);
+    return getOrder(poId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1348,7 +1363,7 @@ async function updateOrder(id, payload = {}) {
   }
 }
 
-async function sendOrder(id, sessionUser) {
+async function sendOrder(id, sessionUser, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const poId = normalizeInteger(id, 'order_id', { min: 1 });
@@ -1357,7 +1372,7 @@ async function sendOrder(id, sessionUser) {
   try {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
-    const po = await assertDraftPo(connection, poId);
+    await assertDraftPo(connection, poId, branchId);
     const items = await getPoItems(connection, poId);
 
     if (!items.length) {
@@ -1369,12 +1384,13 @@ async function sendOrder(id, sessionUser) {
     await connection.query(
       `UPDATE ${PO_TABLE}
        SET status = 'sent', sent_by_user_id = ?, sent_by_username = ?, sent_at = NOW()
-       WHERE id = ?`,
-      [identity.userId, identity.username, poId],
+       WHERE id = ?
+         AND branch_id = ?`,
+      [identity.userId, identity.username, poId, branchId],
     );
 
     await connection.commit();
-    return getOrder(poId);
+    return getOrder(poId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1383,7 +1399,7 @@ async function sendOrder(id, sessionUser) {
   }
 }
 
-async function cancelOrder(id, payload = {}, sessionUser) {
+async function cancelOrder(id, payload = {}, sessionUser, branchId) {
   const reason = requireReason(payload.reason || payload.cancel_reason, 'cancel_reason');
   const pool = getPool();
   const connection = await pool.getConnection();
@@ -1393,7 +1409,7 @@ async function cancelOrder(id, payload = {}, sessionUser) {
   try {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
-    const po = await getPoById(connection, poId, { forUpdate: true });
+    const po = await getPoById(connection, poId, { forUpdate: true, branchId });
 
     if (!po) {
       const error = new Error('Purchase order not found.');
@@ -1414,12 +1430,13 @@ async function cancelOrder(id, payload = {}, sessionUser) {
     await connection.query(
       `UPDATE ${PO_TABLE}
        SET status = 'cancelled', cancel_reason = ?, cancelled_by_user_id = ?, cancelled_by_username = ?, cancelled_at = NOW()
-       WHERE id = ?`,
-      [reason, identity.userId, identity.username, poId],
+       WHERE id = ?
+         AND branch_id = ?`,
+      [reason, identity.userId, identity.username, poId, branchId],
     );
 
     await connection.commit();
-    return getOrder(poId);
+    return getOrder(poId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1466,14 +1483,15 @@ function mapRrItemRow(row) {
   };
 }
 
-async function getRrById(connection, rrId, { forUpdate = false } = {}) {
+async function getRrById(connection, rrId, { forUpdate = false, branchId } = {}) {
   const lockClause = forUpdate ? ' FOR UPDATE' : '';
   const [rows] = await connection.query(
     `SELECT rr.*, po.po_number
      FROM ${RR_TABLE} rr
-     LEFT JOIN ${PO_TABLE} po ON po.id = rr.purchase_order_id
-     WHERE rr.id = ?${lockClause}`,
-    [rrId],
+     LEFT JOIN ${PO_TABLE} po ON po.id = rr.purchase_order_id AND po.branch_id = rr.branch_id
+     WHERE rr.id = ?
+       AND rr.branch_id = ?${lockClause}`,
+    [rrId, branchId],
   );
   return rows[0] || null;
 }
@@ -1488,8 +1506,8 @@ async function getRrItems(connection, rrId) {
   return rows.map(mapRrItemRow);
 }
 
-async function assertDraftRr(connection, rrId) {
-  const rr = await getRrById(connection, rrId, { forUpdate: true });
+async function assertDraftRr(connection, rrId, branchId) {
+  const rr = await getRrById(connection, rrId, { forUpdate: true, branchId });
   if (!rr) {
     const error = new Error('Receiving report not found.');
     error.statusCode = 404;
@@ -1503,8 +1521,8 @@ async function assertDraftRr(connection, rrId) {
   return rr;
 }
 
-async function assertReceivablePo(connection, poId) {
-  const po = await getPoById(connection, poId, { forUpdate: true });
+async function assertReceivablePo(connection, poId, branchId) {
+  const po = await getPoById(connection, poId, { forUpdate: true, branchId });
   if (!po) {
     const error = new Error('Purchase order not found.');
     error.statusCode = 404;
@@ -1522,8 +1540,9 @@ async function listReceivingReports(filters = {}) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
-  const conditions = [];
-  const params = [];
+  const branchId = filters.branchId;
+  const conditions = ['rr.branch_id = ?'];
+  const params = [branchId];
   const status = normalizeText(filters.status);
   const poId = filters.purchase_order_id !== undefined && filters.purchase_order_id !== null && filters.purchase_order_id !== ''
     ? normalizeInteger(filters.purchase_order_id, 'purchase_order_id', { min: 1 })
@@ -1558,11 +1577,11 @@ async function listReceivingReports(filters = {}) {
   return rows.map(mapRrRow);
 }
 
-async function getReceivingReport(id) {
+async function getReceivingReport(id, branchId) {
   const pool = getPool();
   await ensureProcurementTables(pool);
   const rrId = normalizeInteger(id, 'receiving_report_id', { min: 1 });
-  const rr = await getRrById(pool, rrId);
+  const rr = await getRrById(pool, rrId, { branchId });
   if (!rr) {
     const error = new Error('Receiving report not found.');
     error.statusCode = 404;
@@ -1622,7 +1641,7 @@ async function normalizeRrItems(connection, poId, items) {
   return normalized;
 }
 
-async function createReceivingReport(poId, payload = {}, sessionUser) {
+async function createReceivingReport(poId, payload = {}, sessionUser, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const orderId = normalizeInteger(poId, 'order_id', { min: 1 });
@@ -1631,16 +1650,16 @@ async function createReceivingReport(poId, payload = {}, sessionUser) {
   try {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
-    await assertReceivablePo(connection, orderId);
+    await assertReceivablePo(connection, orderId, branchId);
 
     const items = await normalizeRrItems(connection, orderId, payload.items);
-    const rrNumber = await buildDocumentNumber(connection, 'RR', RR_TABLE, 'rr_number');
+    const rrNumber = await buildDocumentNumber(connection, 'RR', RR_TABLE, 'rr_number', branchId);
 
     const [rrResult] = await connection.query(
       `INSERT INTO ${RR_TABLE}
-        (rr_number, purchase_order_id, supplier_dr_number, status, remarks, created_by_user_id, created_by_username)
-       VALUES (?, ?, ?, 'draft', ?, ?, ?)`,
-      [rrNumber, orderId, normalizeText(payload.supplier_dr_number), normalizeText(payload.remarks), identity.userId, identity.username],
+        (rr_number, purchase_order_id, supplier_dr_number, status, remarks, created_by_user_id, created_by_username, branch_id)
+       VALUES (?, ?, ?, 'draft', ?, ?, ?, ?)`,
+      [rrNumber, orderId, normalizeText(payload.supplier_dr_number), normalizeText(payload.remarks), identity.userId, identity.username, branchId],
     );
 
     const rrId = rrResult.insertId;
@@ -1649,15 +1668,15 @@ async function createReceivingReport(poId, payload = {}, sessionUser) {
       await connection.query(
         `INSERT INTO ${RR_ITEMS_TABLE}
           (receiving_report_id, purchase_order_item_id, product_name, sku, product_barcode,
-           qty_received, item_condition, expiry_date, batch_number, unit_cost_snapshot, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           qty_received, item_condition, expiry_date, batch_number, unit_cost_snapshot, sort_order, branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [rrId, item.purchase_order_item_id, item.product_name, item.sku, item.product_barcode,
-          item.qty_received, item.item_condition, item.expiry_date, item.batch_number, item.unit_cost_snapshot, item.sort_order],
+          item.qty_received, item.item_condition, item.expiry_date, item.batch_number, item.unit_cost_snapshot, item.sort_order, branchId],
       );
     }
 
     await connection.commit();
-    return getReceivingReport(rrId);
+    return getReceivingReport(rrId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1666,7 +1685,7 @@ async function createReceivingReport(poId, payload = {}, sessionUser) {
   }
 }
 
-async function updateReceivingReport(id, payload = {}) {
+async function updateReceivingReport(id, payload = {}, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const rrId = normalizeInteger(id, 'receiving_report_id', { min: 1 });
@@ -1674,13 +1693,13 @@ async function updateReceivingReport(id, payload = {}) {
   try {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
-    const rr = await assertDraftRr(connection, rrId);
+    const rr = await assertDraftRr(connection, rrId, branchId);
 
     if (payload.supplier_dr_number !== undefined) {
-      await connection.query(`UPDATE ${RR_TABLE} SET supplier_dr_number = ? WHERE id = ?`, [normalizeText(payload.supplier_dr_number), rrId]);
+      await connection.query(`UPDATE ${RR_TABLE} SET supplier_dr_number = ? WHERE id = ? AND branch_id = ?`, [normalizeText(payload.supplier_dr_number), rrId, branchId]);
     }
     if (payload.remarks !== undefined) {
-      await connection.query(`UPDATE ${RR_TABLE} SET remarks = ? WHERE id = ?`, [normalizeText(payload.remarks), rrId]);
+      await connection.query(`UPDATE ${RR_TABLE} SET remarks = ? WHERE id = ? AND branch_id = ?`, [normalizeText(payload.remarks), rrId, branchId]);
     }
 
     if (payload.items !== undefined) {
@@ -1690,16 +1709,16 @@ async function updateReceivingReport(id, payload = {}) {
         await connection.query(
           `INSERT INTO ${RR_ITEMS_TABLE}
             (receiving_report_id, purchase_order_item_id, product_name, sku, product_barcode,
-             qty_received, item_condition, expiry_date, batch_number, unit_cost_snapshot, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             qty_received, item_condition, expiry_date, batch_number, unit_cost_snapshot, sort_order, branch_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [rrId, item.purchase_order_item_id, item.product_name, item.sku, item.product_barcode,
-            item.qty_received, item.item_condition, item.expiry_date, item.batch_number, item.unit_cost_snapshot, item.sort_order],
+            item.qty_received, item.item_condition, item.expiry_date, item.batch_number, item.unit_cost_snapshot, item.sort_order, branchId],
         );
       }
     }
 
     await connection.commit();
-    return getReceivingReport(rrId);
+    return getReceivingReport(rrId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1708,7 +1727,7 @@ async function updateReceivingReport(id, payload = {}) {
   }
 }
 
-async function confirmReceivingReport(id, sessionUser) {
+async function confirmReceivingReport(id, sessionUser, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const rrId = normalizeInteger(id, 'receiving_report_id', { min: 1 });
@@ -1718,7 +1737,7 @@ async function confirmReceivingReport(id, sessionUser) {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
 
-    const rr = await assertDraftRr(connection, rrId);
+    const rr = await assertDraftRr(connection, rrId, branchId);
     const items = await getRrItems(connection, rrId);
 
     if (!items.length) {
@@ -1727,7 +1746,7 @@ async function confirmReceivingReport(id, sessionUser) {
       throw error;
     }
 
-    const po = await getPoById(connection, rr.purchase_order_id, { forUpdate: true });
+    const po = await getPoById(connection, rr.purchase_order_id, { forUpdate: true, branchId });
     const poItems = await getPoItems(connection, rr.purchase_order_id);
     const poItemMap = new Map(poItems.map((row) => [row.id, row]));
     const receivedDelta = new Map();
@@ -1745,17 +1764,17 @@ async function confirmReceivingReport(id, sessionUser) {
       }
 
       const [productRows] = await connection.query(
-        `SELECT COALESCE(rop, 0) AS rop FROM products WHERE product_barcode = ? LIMIT 1`,
-        [item.product_barcode],
+        `SELECT COALESCE(rop, 0) AS rop FROM products WHERE product_barcode = ? AND branch_id = ? LIMIT 1`,
+        [item.product_barcode, branchId],
       );
       const rop = Number(productRows[0]?.rop || 0);
-      const batchId = await buildBatchId(connection, item.batch_number, item.product_barcode);
+      const batchId = await buildBatchId(connection, item.batch_number, item.product_barcode, branchId);
 
       await connection.query(
         `INSERT INTO product_batches
-          (batch_id, batch_date, product_barcode, Qty, cost_price, selling_price, quantity_remaining, reoder_point, ExpiryDate, UserID, Block)
-         VALUES (?, CURDATE(), ?, ?, ?, 0, ?, ?, ?, ?, 0)`,
-        [batchId, item.product_barcode, item.qty_received, item.unit_cost_snapshot, item.qty_received, rop, item.expiry_date, identity.userId],
+          (batch_id, batch_date, product_barcode, Qty, cost_price, selling_price, quantity_remaining, reoder_point, ExpiryDate, UserID, Block, branch_id)
+         VALUES (?, CURDATE(), ?, ?, ?, 0, ?, ?, ?, ?, 0, ?)`,
+        [batchId, item.product_barcode, item.qty_received, item.unit_cost_snapshot, item.qty_received, rop, item.expiry_date, identity.userId, branchId],
       );
 
       receivedDelta.set(item.purchase_order_item_id, (receivedDelta.get(item.purchase_order_item_id) || 0) + item.qty_received);
@@ -1776,16 +1795,17 @@ async function confirmReceivingReport(id, sessionUser) {
     const anyReceived = updatedPoItems.some((line) => Number(line.qty_received || 0) > 0);
     const nextPoStatus = allFullyReceived ? 'completed' : (anyReceived ? 'partially_received' : po.status);
 
-    await connection.query(`UPDATE ${PO_TABLE} SET status = ? WHERE id = ?`, [nextPoStatus, rr.purchase_order_id]);
+    await connection.query(`UPDATE ${PO_TABLE} SET status = ? WHERE id = ? AND branch_id = ?`, [nextPoStatus, rr.purchase_order_id, branchId]);
     await connection.query(
       `UPDATE ${RR_TABLE}
        SET status = 'confirmed', received_by_user_id = ?, received_by_username = ?, received_at = NOW()
-       WHERE id = ?`,
-      [identity.userId, identity.username, rrId],
+       WHERE id = ?
+         AND branch_id = ?`,
+      [identity.userId, identity.username, rrId, branchId],
     );
 
     await connection.commit();
-    return getReceivingReport(rrId);
+    return getReceivingReport(rrId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1826,23 +1846,26 @@ function mapInvoiceItemRow(row) {
   };
 }
 
-async function getInvoiceByPoId(connection, poId) {
+async function getInvoiceByPoId(connection, poId, branchId) {
   const [rows] = await connection.query(
     `SELECT si.*, po.po_number FROM ${SI_TABLE} si
-     LEFT JOIN ${PO_TABLE} po ON po.id = si.purchase_order_id
-     WHERE si.purchase_order_id = ? ORDER BY si.id DESC LIMIT 1`,
-    [poId],
+     LEFT JOIN ${PO_TABLE} po ON po.id = si.purchase_order_id AND po.branch_id = si.branch_id
+     WHERE si.purchase_order_id = ?
+       AND si.branch_id = ?
+     ORDER BY si.id DESC LIMIT 1`,
+    [poId, branchId],
   );
   return rows[0] || null;
 }
 
-async function getInvoiceById(connection, invoiceId, { forUpdate = false } = {}) {
+async function getInvoiceById(connection, invoiceId, { forUpdate = false, branchId } = {}) {
   const lockClause = forUpdate ? ' FOR UPDATE' : '';
   const [rows] = await connection.query(
     `SELECT si.*, po.po_number FROM ${SI_TABLE} si
-     LEFT JOIN ${PO_TABLE} po ON po.id = si.purchase_order_id
-     WHERE si.id = ?${lockClause}`,
-    [invoiceId],
+     LEFT JOIN ${PO_TABLE} po ON po.id = si.purchase_order_id AND po.branch_id = si.branch_id
+     WHERE si.id = ?
+       AND si.branch_id = ?${lockClause}`,
+    [invoiceId, branchId],
   );
   return rows[0] || null;
 }
@@ -1900,7 +1923,7 @@ async function normalizeInvoiceItems(connection, poId, items) {
   return { items: normalized, amountTotal: Number(amountTotal.toFixed(2)) };
 }
 
-async function createInvoice(payload = {}, sessionUser) {
+async function createInvoice(payload = {}, sessionUser, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const identity = getSessionIdentity(sessionUser);
@@ -1910,7 +1933,7 @@ async function createInvoice(payload = {}, sessionUser) {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
 
-    const po = await getPoById(connection, poId);
+    const po = await getPoById(connection, poId, { branchId });
     if (!po) {
       const error = new Error('Purchase order not found.');
       error.statusCode = 404;
@@ -1928,24 +1951,24 @@ async function createInvoice(payload = {}, sessionUser) {
 
     const [result] = await connection.query(
       `INSERT INTO ${SI_TABLE}
-        (purchase_order_id, invoice_number, status, invoice_date, amount_total, payment_terms, created_by_user_id, created_by_username)
-       VALUES (?, ?, 'draft', ?, ?, ?, ?, ?)`,
+        (purchase_order_id, invoice_number, status, invoice_date, amount_total, payment_terms, created_by_user_id, created_by_username, branch_id)
+       VALUES (?, ?, 'draft', ?, ?, ?, ?, ?, ?)`,
       [poId, invoiceNumber, normalizeOptionalDate(payload.invoice_date, 'invoice_date'), amountTotal,
-        normalizeText(payload.payment_terms), identity.userId, identity.username],
+        normalizeText(payload.payment_terms), identity.userId, identity.username, branchId],
     );
 
     for (const item of items) {
       await connection.query(
         `INSERT INTO ${SI_ITEMS_TABLE}
-          (supplier_invoice_id, purchase_order_item_id, product_name, sku, product_barcode, qty_invoiced, unit_price, line_total, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (supplier_invoice_id, purchase_order_item_id, product_name, sku, product_barcode, qty_invoiced, unit_price, line_total, sort_order, branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [result.insertId, item.purchase_order_item_id, item.product_name, item.sku, item.product_barcode,
-          item.qty_invoiced, item.unit_price, item.line_total, item.sort_order],
+          item.qty_invoiced, item.unit_price, item.line_total, item.sort_order, branchId],
       );
     }
 
     await connection.commit();
-    return getInvoice(result.insertId);
+    return getInvoice(result.insertId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1954,11 +1977,11 @@ async function createInvoice(payload = {}, sessionUser) {
   }
 }
 
-async function getInvoice(id) {
+async function getInvoice(id, branchId) {
   const pool = getPool();
   await ensureProcurementTables(pool);
   const invoiceId = normalizeInteger(id, 'invoice_id', { min: 1 });
-  const invoice = await getInvoiceById(pool, invoiceId);
+  const invoice = await getInvoiceById(pool, invoiceId, { branchId });
 
   if (!invoice) {
     const error = new Error('Supplier invoice not found.');
@@ -1970,7 +1993,7 @@ async function getInvoice(id) {
   return { ...mapInvoiceRow(invoice), items };
 }
 
-async function updateInvoice(id, payload = {}) {
+async function updateInvoice(id, payload = {}, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const invoiceId = normalizeInteger(id, 'invoice_id', { min: 1 });
@@ -1978,7 +2001,7 @@ async function updateInvoice(id, payload = {}) {
   try {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
-    const invoice = await getInvoiceById(connection, invoiceId, { forUpdate: true });
+    const invoice = await getInvoiceById(connection, invoiceId, { forUpdate: true, branchId });
 
     if (!invoice) {
       const error = new Error('Supplier invoice not found.');
@@ -1998,14 +2021,14 @@ async function updateInvoice(id, payload = {}) {
         error.statusCode = 400;
         throw error;
       }
-      await connection.query(`UPDATE ${SI_TABLE} SET invoice_number = ? WHERE id = ?`, [invoiceNumber, invoiceId]);
+      await connection.query(`UPDATE ${SI_TABLE} SET invoice_number = ? WHERE id = ? AND branch_id = ?`, [invoiceNumber, invoiceId, branchId]);
     }
 
     if (payload.invoice_date !== undefined) {
-      await connection.query(`UPDATE ${SI_TABLE} SET invoice_date = ? WHERE id = ?`, [normalizeOptionalDate(payload.invoice_date, 'invoice_date'), invoiceId]);
+      await connection.query(`UPDATE ${SI_TABLE} SET invoice_date = ? WHERE id = ? AND branch_id = ?`, [normalizeOptionalDate(payload.invoice_date, 'invoice_date'), invoiceId, branchId]);
     }
     if (payload.payment_terms !== undefined) {
-      await connection.query(`UPDATE ${SI_TABLE} SET payment_terms = ? WHERE id = ?`, [normalizeText(payload.payment_terms), invoiceId]);
+      await connection.query(`UPDATE ${SI_TABLE} SET payment_terms = ? WHERE id = ? AND branch_id = ?`, [normalizeText(payload.payment_terms), invoiceId, branchId]);
     }
 
     if (payload.items !== undefined) {
@@ -2014,17 +2037,17 @@ async function updateInvoice(id, payload = {}) {
       for (const item of items) {
         await connection.query(
           `INSERT INTO ${SI_ITEMS_TABLE}
-            (supplier_invoice_id, purchase_order_item_id, product_name, sku, product_barcode, qty_invoiced, unit_price, line_total, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (supplier_invoice_id, purchase_order_item_id, product_name, sku, product_barcode, qty_invoiced, unit_price, line_total, sort_order, branch_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [invoiceId, item.purchase_order_item_id, item.product_name, item.sku, item.product_barcode,
-            item.qty_invoiced, item.unit_price, item.line_total, item.sort_order],
+            item.qty_invoiced, item.unit_price, item.line_total, item.sort_order, branchId],
         );
       }
-      await connection.query(`UPDATE ${SI_TABLE} SET amount_total = ? WHERE id = ?`, [amountTotal, invoiceId]);
+      await connection.query(`UPDATE ${SI_TABLE} SET amount_total = ? WHERE id = ? AND branch_id = ?`, [amountTotal, invoiceId, branchId]);
     }
 
     await connection.commit();
-    return getInvoice(invoiceId);
+    return getInvoice(invoiceId, branchId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -2045,7 +2068,7 @@ async function getConfirmedGoodQtyByPo(connection, poId) {
   return new Map(rows.map((row) => [row.purchase_order_item_id, Number(row.qty_good || 0)]));
 }
 
-async function runThreeWayMatch(poId) {
+async function runThreeWayMatch(poId, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const orderId = normalizeInteger(poId, 'order_id', { min: 1 });
@@ -2054,7 +2077,7 @@ async function runThreeWayMatch(poId) {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
 
-    const po = await getPoById(connection, orderId);
+    const po = await getPoById(connection, orderId, { branchId });
     if (!po) {
       const error = new Error('Purchase order not found.');
       error.statusCode = 404;
@@ -2063,7 +2086,7 @@ async function runThreeWayMatch(poId) {
 
     const poItems = await getPoItems(connection, orderId);
     const receivedMap = await getConfirmedGoodQtyByPo(connection, orderId);
-    const invoice = await getInvoiceByPoId(connection, orderId);
+    const invoice = await getInvoiceByPoId(connection, orderId, branchId);
     const invoiceItems = invoice ? await getInvoiceItems(connection, invoice.id) : [];
     const invoiceMap = new Map(invoiceItems.map((row) => [row.purchase_order_item_id, row]));
 
@@ -2106,17 +2129,17 @@ async function runThreeWayMatch(poId) {
       totals: { po_total: Number(poTotal.toFixed(2)), received_total: Number(receivedTotal.toFixed(2)), invoice_total: Number(invoiceTotal.toFixed(2)) },
     });
 
-    const [existing] = await connection.query(`SELECT id FROM ${MATCH_TABLE} WHERE purchase_order_id = ?`, [orderId]);
+    const [existing] = await connection.query(`SELECT id FROM ${MATCH_TABLE} WHERE purchase_order_id = ? AND branch_id = ?`, [orderId, branchId]);
 
     if (existing.length) {
       await connection.query(
-        `UPDATE ${MATCH_TABLE} SET status = ?, discrepancy_json = ?, reviewed_by_user_id = NULL, reviewed_by_username = NULL, reviewed_at = NULL WHERE purchase_order_id = ?`,
-        [status, discrepancyJson, orderId],
+        `UPDATE ${MATCH_TABLE} SET status = ?, discrepancy_json = ?, reviewed_by_user_id = NULL, reviewed_by_username = NULL, reviewed_at = NULL WHERE purchase_order_id = ? AND branch_id = ?`,
+        [status, discrepancyJson, orderId, branchId],
       );
     } else {
       await connection.query(
-        `INSERT INTO ${MATCH_TABLE} (purchase_order_id, status, discrepancy_json) VALUES (?, ?, ?)`,
-        [orderId, status, discrepancyJson],
+        `INSERT INTO ${MATCH_TABLE} (purchase_order_id, status, discrepancy_json, branch_id) VALUES (?, ?, ?, ?)`,
+        [orderId, status, discrepancyJson, branchId],
       );
     }
 
@@ -2124,8 +2147,8 @@ async function runThreeWayMatch(poId) {
 
     const [matchRows] = await pool.query(
       `SELECT id, purchase_order_id, status, discrepancy_json, reviewed_by_user_id, reviewed_by_username, reviewed_at, created_at, updated_at
-       FROM ${MATCH_TABLE} WHERE purchase_order_id = ?`,
-      [orderId],
+       FROM ${MATCH_TABLE} WHERE purchase_order_id = ? AND branch_id = ?`,
+      [orderId, branchId],
     );
 
     const match = matchRows[0];
@@ -2141,7 +2164,7 @@ async function runThreeWayMatch(poId) {
   }
 }
 
-async function approveThreeWayMatch(poId, sessionUser) {
+async function approveThreeWayMatch(poId, sessionUser, branchId) {
   assertApprover(sessionUser);
   const pool = getPool();
   const connection = await pool.getConnection();
@@ -2153,8 +2176,8 @@ async function approveThreeWayMatch(poId, sessionUser) {
     await connection.beginTransaction();
 
     const [rows] = await connection.query(
-      `SELECT id, status, discrepancy_json FROM ${MATCH_TABLE} WHERE purchase_order_id = ? FOR UPDATE`,
-      [orderId],
+      `SELECT id, status, discrepancy_json FROM ${MATCH_TABLE} WHERE purchase_order_id = ? AND branch_id = ? FOR UPDATE`,
+      [orderId, branchId],
     );
 
     if (!rows.length) {
@@ -2173,13 +2196,14 @@ async function approveThreeWayMatch(poId, sessionUser) {
     await connection.query(
       `UPDATE ${MATCH_TABLE}
        SET status = 'approved_for_payment', reviewed_by_user_id = ?, reviewed_by_username = ?, reviewed_at = NOW()
-       WHERE purchase_order_id = ?`,
-      [identity.userId, identity.username, orderId],
+       WHERE purchase_order_id = ?
+         AND branch_id = ?`,
+      [identity.userId, identity.username, orderId, branchId],
     );
 
     await connection.commit();
 
-    const [updated] = await pool.query(`SELECT * FROM ${MATCH_TABLE} WHERE purchase_order_id = ?`, [orderId]);
+    const [updated] = await pool.query(`SELECT * FROM ${MATCH_TABLE} WHERE purchase_order_id = ? AND branch_id = ?`, [orderId, branchId]);
     return {
       ...updated[0],
       discrepancy: updated[0].discrepancy_json ? JSON.parse(updated[0].discrepancy_json) : null,
@@ -2218,8 +2242,9 @@ async function listPayables(filters = {}) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
-  const conditions = [];
-  const params = [];
+  const branchId = filters.branchId;
+  const conditions = ['ap.branch_id = ?'];
+  const params = [branchId];
   const status = normalizeText(filters.status);
 
   if (status) {
@@ -2242,7 +2267,7 @@ async function listPayables(filters = {}) {
   return rows.map(mapPayableRow);
 }
 
-async function createPayableFromPo(poId) {
+async function createPayableFromPo(poId, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const orderId = normalizeInteger(poId, 'order_id', { min: 1 });
@@ -2251,29 +2276,29 @@ async function createPayableFromPo(poId) {
     await ensureProcurementTables(connection);
     await connection.beginTransaction();
 
-    const po = await getPoById(connection, orderId);
+    const po = await getPoById(connection, orderId, { branchId });
     if (!po) {
       const error = new Error('Purchase order not found.');
       error.statusCode = 404;
       throw error;
     }
 
-    const [existing] = await connection.query(`SELECT id FROM ${AP_TABLE} WHERE purchase_order_id = ? LIMIT 1`, [orderId]);
+    const [existing] = await connection.query(`SELECT id FROM ${AP_TABLE} WHERE purchase_order_id = ? AND branch_id = ? LIMIT 1`, [orderId, branchId]);
     if (existing.length) {
       const error = new Error('Accounts payable record already exists for this purchase order.');
       error.statusCode = 409;
       throw error;
     }
 
-    const invoice = await getInvoiceByPoId(connection, orderId);
-    const supplier = await getSupplierById(connection, po.supplier_id);
+    const invoice = await getInvoiceByPoId(connection, orderId, branchId);
+    const supplier = await getSupplierById(connection, po.supplier_id, { branchId });
     const amountDue = invoice ? Number(invoice.amount_total || 0) : 0;
 
     const [result] = await connection.query(
       `INSERT INTO ${AP_TABLE}
-        (purchase_order_id, supplier_invoice_id, supplier_id, status, amount_due, amount_paid, payment_terms)
-       VALUES (?, ?, ?, 'unpaid', ?, 0, ?)`,
-      [orderId, invoice?.id || null, po.supplier_id, amountDue, invoice?.payment_terms || supplier?.payment_terms || 'Net 30'],
+        (purchase_order_id, supplier_invoice_id, supplier_id, status, amount_due, amount_paid, payment_terms, branch_id)
+       VALUES (?, ?, ?, 'unpaid', ?, 0, ?, ?)`,
+      [orderId, invoice?.id || null, po.supplier_id, amountDue, invoice?.payment_terms || supplier?.payment_terms || 'Net 30', branchId],
     );
 
     await connection.commit();
@@ -2281,8 +2306,8 @@ async function createPayableFromPo(poId) {
     const [rows] = await pool.query(
       `SELECT ap.*, po.po_number, s.supplier_name FROM ${AP_TABLE} ap
        LEFT JOIN ${PO_TABLE} po ON po.id = ap.purchase_order_id
-       LEFT JOIN ${SUPPLIERS_TABLE} s ON s.id = ap.supplier_id WHERE ap.id = ?`,
-      [result.insertId],
+       LEFT JOIN ${SUPPLIERS_TABLE} s ON s.id = ap.supplier_id WHERE ap.id = ? AND ap.branch_id = ?`,
+      [result.insertId, branchId],
     );
 
     return mapPayableRow(rows[0]);
@@ -2294,7 +2319,7 @@ async function createPayableFromPo(poId) {
   }
 }
 
-async function recordPayment(id, payload = {}, sessionUser) {
+async function recordPayment(id, payload = {}, sessionUser, branchId) {
   const pool = getPool();
   const connection = await pool.getConnection();
   const payableId = normalizeInteger(id, 'payable_id', { min: 1 });
@@ -2308,8 +2333,9 @@ async function recordPayment(id, payload = {}, sessionUser) {
     const [payableRows] = await connection.query(
       `SELECT ap.*, po.po_number FROM ${AP_TABLE} ap
        LEFT JOIN ${PO_TABLE} po ON po.id = ap.purchase_order_id
-       WHERE ap.id = ? FOR UPDATE`,
-      [payableId],
+       WHERE ap.id = ?
+         AND ap.branch_id = ? FOR UPDATE`,
+      [payableId, branchId],
     );
 
     if (!payableRows.length) {
@@ -2320,8 +2346,8 @@ async function recordPayment(id, payload = {}, sessionUser) {
 
     const payable = payableRows[0];
     const [matchRows] = await connection.query(
-      `SELECT status FROM ${MATCH_TABLE} WHERE purchase_order_id = ?`,
-      [payable.purchase_order_id],
+      `SELECT status FROM ${MATCH_TABLE} WHERE purchase_order_id = ? AND branch_id = ?`,
+      [payable.purchase_order_id, branchId],
     );
 
     if (!matchRows.length || matchRows[0].status !== 'approved_for_payment') {
@@ -2345,7 +2371,8 @@ async function recordPayment(id, payload = {}, sessionUser) {
       `UPDATE ${AP_TABLE}
        SET amount_paid = ?, status = ?, payment_date = ?, payment_method = ?,
            paid_by_user_id = ?, paid_by_username = ?
-       WHERE id = ?`,
+       WHERE id = ?
+         AND branch_id = ?`,
       [
         Number(newAmountPaid.toFixed(2)),
         nextStatus,
@@ -2354,6 +2381,7 @@ async function recordPayment(id, payload = {}, sessionUser) {
         identity.userId,
         identity.username,
         payableId,
+        branchId,
       ],
     );
 
@@ -2362,8 +2390,8 @@ async function recordPayment(id, payload = {}, sessionUser) {
     const [rows] = await pool.query(
       `SELECT ap.*, po.po_number, s.supplier_name FROM ${AP_TABLE} ap
        LEFT JOIN ${PO_TABLE} po ON po.id = ap.purchase_order_id
-       LEFT JOIN ${SUPPLIERS_TABLE} s ON s.id = ap.supplier_id WHERE ap.id = ?`,
-      [payableId],
+       LEFT JOIN ${SUPPLIERS_TABLE} s ON s.id = ap.supplier_id WHERE ap.id = ? AND ap.branch_id = ?`,
+      [payableId, branchId],
     );
 
     return mapPayableRow(rows[0]);
@@ -2375,7 +2403,7 @@ async function recordPayment(id, payload = {}, sessionUser) {
   }
 }
 
-async function getPayablesAging() {
+async function getPayablesAging(branchId) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
@@ -2387,8 +2415,10 @@ async function getPayablesAging() {
      FROM ${AP_TABLE} ap
      LEFT JOIN ${PO_TABLE} po ON po.id = ap.purchase_order_id
      LEFT JOIN ${SUPPLIERS_TABLE} s ON s.id = ap.supplier_id
-     WHERE ap.status IN ('unpaid', 'partial')
+     WHERE ap.branch_id = ?
+       AND ap.status IN ('unpaid', 'partial')
      ORDER BY ap.created_at ASC`,
+    [branchId],
   );
 
   const buckets = { current: [], days_1_30: [], days_31_60: [], days_61_90: [], days_90_plus: [] };
@@ -2432,11 +2462,12 @@ async function getRequisitionReport(filters = {}) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
+  const branchId = filters.branchId;
   const dateFrom = normalizeDateFilter(filters.date_from || filters.dateFrom, 'date_from');
   const dateTo = normalizeDateFilter(filters.date_to || filters.dateTo, 'date_to');
   const status = normalizeText(filters.status);
-  const conditions = [];
-  const params = [];
+  const conditions = ['pr.branch_id = ?'];
+  const params = [branchId];
 
   if (status) {
     conditions.push('pr.status = ?');
@@ -2477,11 +2508,12 @@ async function getOrderReport(filters = {}) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
+  const branchId = filters.branchId;
   const dateFrom = normalizeDateFilter(filters.date_from || filters.dateFrom, 'date_from');
   const dateTo = normalizeDateFilter(filters.date_to || filters.dateTo, 'date_to');
   const status = normalizeText(filters.status);
-  const conditions = [];
-  const params = [];
+  const conditions = ['po.branch_id = ?'];
+  const params = [branchId];
 
   if (status) {
     conditions.push('po.status = ?');
@@ -2528,11 +2560,12 @@ async function getReceivingReportList(filters = {}) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
+  const branchId = filters.branchId;
   const dateFrom = normalizeDateFilter(filters.date_from || filters.dateFrom, 'date_from');
   const dateTo = normalizeDateFilter(filters.date_to || filters.dateTo, 'date_to');
   const status = normalizeText(filters.status);
-  const conditions = [];
-  const params = [];
+  const conditions = ['rr.branch_id = ?'];
+  const params = [branchId];
 
   if (status) {
     conditions.push('rr.status = ?');
@@ -2568,9 +2601,10 @@ async function getMatchingReport(filters = {}) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
+  const branchId = filters.branchId;
   const status = normalizeText(filters.status);
-  const conditions = [];
-  const params = [];
+  const conditions = ['mr.branch_id = ?'];
+  const params = [branchId];
 
   if (status) {
     conditions.push('mr.status = ?');
@@ -2606,6 +2640,7 @@ async function getProcurementAuditTrail(filters = {}) {
   const pool = getPool();
   await ensureProcurementTables(pool);
 
+  const branchId = filters.branchId;
   const status = normalizeText(filters.status);
   const poId = filters.purchase_order_id !== undefined && filters.purchase_order_id !== null && filters.purchase_order_id !== ''
     ? normalizeInteger(filters.purchase_order_id, 'purchase_order_id', { min: 1 })
@@ -2613,8 +2648,8 @@ async function getProcurementAuditTrail(filters = {}) {
   const dateFrom = normalizeDateFilter(filters.date_from || filters.dateFrom, 'date_from');
   const dateTo = normalizeDateFilter(filters.date_to || filters.dateTo, 'date_to');
 
-  const conditions = [];
-  const params = [];
+  const conditions = ['mr.branch_id = ?'];
+  const params = [branchId];
 
   if (status) {
     conditions.push('mr.status = ?');

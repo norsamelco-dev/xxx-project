@@ -1,5 +1,6 @@
 const express = require('express');
 const requireAuth = require('../middleware/requireAuth');
+const requireBranchContext = require('../middleware/requireBranchContext');
 const {
   getDashboardXData,
   getDashboardOverview,
@@ -12,10 +13,12 @@ const {
 const router = express.Router();
 
 router.use(requireAuth);
+router.use(requireBranchContext);
 
 router.get('/overview', async (request, response) => {
   try {
     const data = await getDashboardOverview({
+      branchId: request.branchId,
       startDate: request.query.start_date,
       endDate: request.query.end_date,
       groupBy: request.query.group_by,
@@ -32,6 +35,7 @@ router.get('/overview', async (request, response) => {
 router.get('/sales', async (request, response) => {
   try {
     const data = await getDashboardSales({
+      branchId: request.branchId,
       startDate: request.query.start_date,
       endDate: request.query.end_date,
       groupBy: request.query.group_by,
@@ -45,9 +49,9 @@ router.get('/sales', async (request, response) => {
   }
 });
 
-router.get('/inventory', async (_request, response) => {
+router.get('/inventory', async (request, response) => {
   try {
-    const data = await getDashboardInventory();
+    const data = await getDashboardInventory(request.branchId);
     response.json(data);
   } catch (error) {
     response.status(error.statusCode || 500).json({
@@ -59,6 +63,7 @@ router.get('/inventory', async (_request, response) => {
 router.get('/damage-reports', async (request, response) => {
   try {
     const data = await getDashboardDamageReports({
+      branchId: request.branchId,
       startDate: request.query.start_date,
       endDate: request.query.end_date,
       groupBy: request.query.group_by,
@@ -75,6 +80,7 @@ router.get('/damage-reports', async (request, response) => {
 router.get('/financial', async (request, response) => {
   try {
     const data = await getDashboardFinancial({
+      branchId: request.branchId,
       startDate: request.query.start_date,
       endDate: request.query.end_date,
     });
@@ -90,6 +96,7 @@ router.get('/financial', async (request, response) => {
 router.get('/', async (request, response) => {
   try {
     const data = await getDashboardXData({
+      branchId: request.branchId,
       startDate: request.query.start_date,
       endDate: request.query.end_date,
       groupBy: request.query.group_by,

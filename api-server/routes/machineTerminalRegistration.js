@@ -1,5 +1,6 @@
 const express = require('express');
 const requireAuth = require('../middleware/requireAuth');
+const requireBranchContext = require('../middleware/requireBranchContext');
 const { findUserById, passwordsMatch } = require('../services/userService');
 const {
   listMachines,
@@ -12,10 +13,11 @@ const {
 const router = express.Router();
 
 router.use(requireAuth);
+router.use(requireBranchContext);
 
-router.get('/', async (_request, response) => {
+router.get('/', async (request, response) => {
   try {
-    const data = await listMachines();
+    const data = await listMachines(request.branchId);
     response.json({ data });
   } catch (error) {
     response.status(500).json({
@@ -27,7 +29,7 @@ router.get('/', async (_request, response) => {
 router.post('/validate', async (request, response) => {
   try {
     const excludeId = request.body?.id || request.body?.exclude_id || null;
-    const duplicates = await findDuplicateFields(request.body || {}, excludeId);
+    const duplicates = await findDuplicateFields(request.branchId, request.body || {}, excludeId);
 
     response.json({
       duplicates,
@@ -42,7 +44,7 @@ router.post('/validate', async (request, response) => {
 
 router.post('/', async (request, response) => {
   try {
-    const data = await createMachine(request.body || {});
+    const data = await createMachine(request.branchId, request.body || {});
     response.status(201).json({
       data,
       message: 'Machine terminal created successfully.',
@@ -69,7 +71,7 @@ router.put('/:id', async (request, response) => {
       });
     }
 
-    const data = await updateMachine(id, request.body || {});
+    const data = await updateMachine(request.branchId, id, request.body || {});
 
     if (!data) {
       return response.status(404).json({
@@ -125,7 +127,7 @@ router.delete('/:id', async (request, response) => {
       });
     }
 
-    const deleted = await deleteMachine(id);
+    const deleted = await deleteMachine(request.branchId, id);
 
     if (!deleted) {
       return response.status(404).json({
