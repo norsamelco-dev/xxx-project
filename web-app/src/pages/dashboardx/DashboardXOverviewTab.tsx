@@ -47,8 +47,10 @@ function DashboardXOverviewTab({ data }: DashboardXOverviewTabProps) {
     [dailySales],
   )
 
+  const dailySalesChartHeight = 220
+
   const trendOptions = useMemo(
-    () => buildAreaTrendOptions(colors, trendCategories, { height: 280, dualAxis: true }),
+    () => buildAreaTrendOptions(colors, trendCategories, { height: dailySalesChartHeight, dualAxis: true }),
     [colors, trendCategories],
   )
 
@@ -62,9 +64,11 @@ function DashboardXOverviewTab({ data }: DashboardXOverviewTabProps) {
     [topDamageReasons],
   )
 
+  const damageReasonChartHeight = Math.max(120, topDamageReasons.length * 32)
+
   const damageReasonOptions = useMemo(
-    () => buildHorizontalBarOptions(colors, damageReasonCategories, { height: Math.max(220, topDamageReasons.length * 36), dataLabels: true }),
-    [colors, damageReasonCategories, topDamageReasons.length],
+    () => buildHorizontalBarOptions(colors, damageReasonCategories, { height: damageReasonChartHeight, dataLabels: true }),
+    [colors, damageReasonCategories, damageReasonChartHeight],
   )
 
   return (
@@ -153,16 +157,18 @@ function DashboardXOverviewTab({ data }: DashboardXOverviewTabProps) {
         </div>
 
         {topDamageReasons.length > 0 ? (
-          <div className="dashboardx-chart-card dashboardx-chart-card--compact">
+          <div className="dashboardx-chart-card dashboardx-chart-card--compact dashboardx-chart-card--fit">
             <h3>Top Damage Reasons</h3>
-            <DashboardApexChart
-              type="bar"
-              series={damageReasonSeries}
-              options={damageReasonOptions}
-              height={Math.max(220, topDamageReasons.length * 36)}
-              isEmpty={topDamageReasons.length === 0}
-              emptyMessage="No damage reasons in this period."
-            />
+            <div className="dashboardx-scroll-chart dashboardx-scroll-chart--compact">
+              <DashboardApexChart
+                type="bar"
+                series={damageReasonSeries}
+                options={damageReasonOptions}
+                height={damageReasonChartHeight}
+                isEmpty={topDamageReasons.length === 0}
+                emptyMessage="No damage reasons in this period."
+              />
+            </div>
           </div>
         ) : null}
       </article>
@@ -174,12 +180,12 @@ function DashboardXOverviewTab({ data }: DashboardXOverviewTabProps) {
             <p>Daily totals for the last 30 days ({dailyRangeLabel}). Other filters do not affect this chart.</p>
           </div>
         </div>
-        <div className="dashboardx-chart-card">
+        <div className="dashboardx-chart-card dashboardx-chart-card--fit">
           <DashboardApexChart
             type="area"
             series={trendSeries}
             options={trendOptions}
-            height={280}
+            height={dailySalesChartHeight}
             isEmpty={dailySales.length === 0}
             emptyMessage="No sales recorded in the last 30 days."
           />
