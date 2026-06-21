@@ -30,14 +30,19 @@ const initialForm: BranchForm = {
   is_active: true,
 }
 
+const initialDeletePasswords = ['', '', '']
+
 function BranchesPage() {
   usePageVisitAudit('Branches')
   const [rows, setRows] = useState<BranchRow[]>([])
   const [form, setForm] = useState<BranchForm>(initialForm)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<BranchRow | null>(null)
+  const [deletePasswords, setDeletePasswords] = useState<string[]>(initialDeletePasswords)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -85,31 +90,108 @@ function BranchesPage() {
     setIsFormOpen(false)
   }
 
+  function handleOpenDeleteModal(row: BranchRow) {
+    setDeleteTarget(row)
+    setDeletePasswords(initialDeletePasswords)
+    setError('')
+    setSuccess('')
+  }
+
+  function handleCloseDeleteModal() {
+    if (isDeleting) {
+      return
+    }
+
+    setDeleteTarget(null)
+    setDeletePasswords(initialDeletePasswords)
+  }
+
+  function handleDeletePasswordChange(index: number, value: string) {
+    setDeletePasswords((current) => current.map((entry, entryIndex) => (entryIndex === index ? value : entry)))
+  }
+
+  async function handleDelete(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!deleteTarget) {
+      return
+    }
+
+    if (deletePasswords.some((password) => !password.trim())) {
+      setError('Enter your password in all three confirmation fields to delete this branch.')
+      return
+    }
+
+    try {
+      setError('')
+      setSuccess('')
+      setIsDeleting(true)
+      await apiFetch<{ message: string }>(`/api/branches/${deleteTarget.branch_id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ passwords: deletePasswords.map((password) => password.trim()) }),
+        audit: {
+          page: AUDIT_PAGES.BRANCHES,
+          action: 'DELETE',
+          description: buildAuditDescription(
+            AUDIT_PAGES.BRANCHES,
+            `Deleted branch "${deleteTarget.branch_name}" (${deleteTarget.branch_code}).`,
+          ),
+          tableName: 'branches',
+        },
+      })
+
+      setSuccess(`Branch "${deleteTarget.branch_name}" deleted successfully.`)
+      setDeleteTarget(null)
+      setDeletePasswords(initialDeletePasswords)
+      if (editingId === deleteTarget.branch_id) {
+        setEditingId(null)
+        setForm(initialForm)
+        setIsFormOpen(false)
+      }
+      await loadRows()
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Unable to delete branch.')
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
     setSuccess('')
 
-    if (!form.branch_code.trim() || !form.branch_name.trim()) {
-      setError('Branch code and name are required.')
+    if (!form.branch_name.trim()) {
+      setError('Branch name is required.')
+      return
+    }
+
+    if (editingId && !form.branch_code.trim()) {
+      setError('Branch code is required.')
       return
     }
 
     try {
       setIsSaving(true)
-      const payload = {
-        branch_code: form.branch_code.trim(),
-        branch_name: form.branch_name.trim(),
-        address: form.address.trim(),
-        is_active: form.is_active,
-      }
+      const payload = editingId
+        ? {
+            branch_code: form.branch_code.trim(),
+            branch_name: form.branch_name.trim(),
+            address: form.address.trim(),
+            is_active: form.is_active,
+          }
+        : {
+            branch_name: form.branch_name.trim(),
+            address: form.address.trim(),
+            is_active: form.is_active,
+          }
 
       if (editingId) {
         await apiFetch<{ data: BranchRow; message?: string }>(`/api/branches/${editingId}`, {
           method: 'PATCH',
           body: JSON.stringify(payload),
           audit: {
-            page: AUDIT_PAGES.USERS,
+            page: AUDIT_PAGES.BRANCHES,
             action: 'UPDATE',
             description: buildAuditDescription('Branches', `Updated branch "${payload.branch_name}".`),
             tableName: 'branches',
@@ -121,7 +203,7 @@ function BranchesPage() {
           method: 'POST',
           body: JSON.stringify(payload),
           audit: {
-            page: AUDIT_PAGES.USERS,
+            page: AUDIT_PAGES.BRANCHES,
             action: 'INSERT',
             description: buildAuditDescription('Branches', `Created branch "${payload.branch_name}".`),
             tableName: 'branches',
@@ -189,9 +271,26 @@ function BranchesPage() {
                       <td>{row.address || '-'}</td>
                       <td>{row.is_active ? 'Active' : 'Inactive'}</td>
                       <td>
-                        <button className="terminal-action" type="button" onClick={() => handleEdit(row)}>
-                          <ButtonLabel icon="edit">Edit</ButtonLabel>
-                        </button>
+                        <div className="table-actions">
+                          <button className="terminal-action" type="button" onClick={() => handleEdit(row)}>
+                            <ButtonLabel icon="edit">Edit</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            className="terminal-action stock-batch-delete-button"
+                            onClick={() => handleOpenDeleteModal(row)}
+                            aria-label={`Delete branch ${row.branch_name}`}
+                            title="Delete branch"
+                          >
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className="stock-batch-trash-icon">
+                              <path d="M4 7h16" />
+                              <path d="M9 7V5h6v2" />
+                              <path d="M8 7l1 12h6l1-12" />
+                              <path d="M10 10v6" />
+                              <path d="M14 10v6" />
+                            </svg>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -216,13 +315,20 @@ function BranchesPage() {
               <form className="settings-form-grid" onSubmit={handleSubmit}>
                 <div className="field">
                   <label htmlFor="branch_code">Branch code</label>
-                  <input
-                    id="branch_code"
-                    name="branch_code"
-                    value={form.branch_code}
-                    onChange={(event) => setForm((current) => ({ ...current, branch_code: event.target.value }))}
-                    disabled={Boolean(editingId)}
-                  />
+                  {editingId ? (
+                    <input
+                      id="branch_code"
+                      name="branch_code"
+                      value={form.branch_code}
+                      onChange={(event) => setForm((current) => ({ ...current, branch_code: event.target.value }))}
+                      disabled
+                    />
+                  ) : (
+                    <>
+                      <input id="branch_code" name="branch_code" value="Auto-generated" readOnly disabled />
+                      <p className="field-hint">A unique code (for example BR001) is assigned automatically when you save.</p>
+                    </>
+                  )}
                 </div>
                 <div className="field">
                   <label htmlFor="branch_name">Branch name</label>
@@ -261,6 +367,54 @@ function BranchesPage() {
                   </ThemedButton>
                   <ThemedButton type="submit" disabled={isSaving}>
                     {isSaving ? 'Saving...' : editingId ? 'Update Branch' : 'Create Branch'}
+                  </ThemedButton>
+                </div>
+              </form>
+            </article>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteTarget ? (
+        <div className="terminal-modal-backdrop" role="presentation">
+          <div className="terminal-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <article className="panel settings-card terminal-delete-modal">
+              <div className="panel-header">
+                <div>
+                  <h2>Delete Branch</h2>
+                  <p>
+                    Enter your password three times to permanently delete{' '}
+                    <strong>{deleteTarget.branch_name}</strong> ({deleteTarget.branch_code}) and all related branch data.
+                  </p>
+                </div>
+              </div>
+
+              <form
+                className="settings-stack"
+                onSubmit={(event) => {
+                  void handleDelete(event)
+                }}
+              >
+                {deletePasswords.map((password, index) => (
+                  <div className="field" key={`branch-delete-password-${index + 1}`}>
+                    <label htmlFor={`branch_delete_password_${index + 1}`}>Password confirmation {index + 1} of 3</label>
+                    <input
+                      id={`branch_delete_password_${index + 1}`}
+                      name={`branch_delete_password_${index + 1}`}
+                      type="password"
+                      value={password}
+                      onChange={(event) => handleDeletePasswordChange(index, event.target.value)}
+                      autoComplete="current-password"
+                    />
+                  </div>
+                ))}
+
+                <div className="settings-actions">
+                  <ThemedButton type="button" variant="secondary" onClick={handleCloseDeleteModal} disabled={isDeleting}>
+                    <ButtonLabel icon="cancel">Cancel</ButtonLabel>
+                  </ThemedButton>
+                  <ThemedButton type="submit" variant="primary" disabled={isDeleting}>
+                    <ButtonLabel icon="delete">{isDeleting ? 'Deleting...' : 'Confirm delete'}</ButtonLabel>
                   </ThemedButton>
                 </div>
               </form>

@@ -4,6 +4,23 @@ const fs = require('fs')
 const { spawn } = require('child_process')
 const http = require('http')
 
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.map': 'application/json; charset=utf-8',
+}
+
 const DEV_URL = 'http://127.0.0.1:8584'
 const LOCAL_API_URL = 'http://127.0.0.1:5000'
 const isDev = process.env.POS_DESKTOP_DEV === '1' || !app.isPackaged
@@ -18,6 +35,7 @@ const shouldSpawnServer =
 
 let mainWindow = null
 let serverProcess = null
+let rendererServer = null
 
 const gotLock = app.requestSingleInstanceLock()
 
@@ -34,8 +52,55 @@ if (!gotLock) {
   })
 }
 
+function getRendererRoot() {
+  return path.join(__dirname, 'dist', 'renderer')
+}
+
 function getRendererIndexPath() {
-  return path.join(__dirname, 'dist', 'renderer', 'index.html')
+  return path.join(getRendererRoot(), 'index.html')
+}
+
+function startRendererStaticServer() {
+  const root = getRendererRoot()
+
+  return new Promise((resolve, reject) => {
+    rendererServer = http.createServer((req, res) => {
+      const urlPath = (req.url || '/').split('?')[0]
+      const relativePath = urlPath === '/' ? 'index.html' : urlPath.replace(/^\//, '')
+      const filePath = path.normalize(path.join(root, relativePath))
+
+      if (!filePath.startsWith(root)) {
+        res.writeHead(403)
+        res.end('Forbidden')
+        return
+      }
+
+      fs.readFile(filePath, (error, data) => {
+        if (error) {
+          res.writeHead(404)
+          res.end('Not found')
+          return
+        }
+
+        const ext = path.extname(filePath).toLowerCase()
+        res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' })
+        res.end(data)
+      })
+    })
+
+    rendererServer.on('error', reject)
+    rendererServer.listen(0, '127.0.0.1', () => {
+      const address = rendererServer.address()
+      resolve(`http://127.0.0.1:${address.port}`)
+    })
+  })
+}
+
+function stopRendererStaticServer() {
+  if (rendererServer) {
+    rendererServer.close()
+    rendererServer = null
+  }
 }
 
 function getServerEntryPath() {
@@ -187,7 +252,9 @@ async function createMainWindow() {
     throw new Error(`Missing renderer bundle at ${indexPath}. Run npm run build:web first.`)
   }
 
-  await mainWindow.loadFile(indexPath)
+  // Expo web export uses absolute /_expo/... paths that fail under file://
+  const rendererUrl = await startRendererStaticServer()
+  await mainWindow.loadURL(rendererUrl)
 }
 
 app.whenReady().then(() => {
@@ -199,6 +266,7 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   stopLocalApiServer()
+  stopRendererStaticServer()
   if (process.platform !== 'darwin') {
     app.quit()
   }
@@ -206,4 +274,5 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   stopLocalApiServer()
+  stopRendererStaticServer()
 })

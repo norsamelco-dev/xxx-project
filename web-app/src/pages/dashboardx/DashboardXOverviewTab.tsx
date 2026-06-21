@@ -17,7 +17,7 @@ type DashboardXOverviewTabProps = {
 function DashboardXOverviewTab({ data }: DashboardXOverviewTabProps) {
   const { theme } = useTheme()
   const colors = theme.colors
-  const { overview, alerts } = data
+  const { overview } = data
   const dailySales = data.dailySalesLastMonth?.points ?? data.salesTrendSnapshot
   const dailyRangeLabel = data.dailySalesLastMonth?.start_date && data.dailySalesLastMonth?.end_date
     ? formatDashboardDayRange(data.dailySalesLastMonth.start_date, data.dailySalesLastMonth.end_date)
@@ -104,30 +104,6 @@ function DashboardXOverviewTab({ data }: DashboardXOverviewTabProps) {
           <div>
             <span className="summary-label">Active Users</span>
             <strong>{toInt(overview.activeUsers)}</strong>
-          </div>
-        </article>
-      </div>
-
-      <div className="dashboardx-alert-row">
-        <article className="dashboardx-inventory-card dashboardx-inventory-card--warning dashboardx-alert-chip">
-          <div className="dashboardx-inventory-card__icon" aria-hidden="true">⚠️</div>
-          <div>
-            <span className="dashboardx-inventory-card__label">Low Stock</span>
-            <strong>{toInt(alerts.lowStockAlerts)}</strong>
-          </div>
-        </article>
-        <article className="dashboardx-inventory-card dashboardx-inventory-card--critical dashboardx-alert-chip">
-          <div className="dashboardx-inventory-card__icon" aria-hidden="true">⛔</div>
-          <div>
-            <span className="dashboardx-inventory-card__label">Out of Stock</span>
-            <strong>{toInt(alerts.outOfStockItems)}</strong>
-          </div>
-        </article>
-        <article className="dashboardx-inventory-card dashboardx-inventory-card--attention dashboardx-alert-chip">
-          <div className="dashboardx-inventory-card__icon" aria-hidden="true">⏳</div>
-          <div>
-            <span className="dashboardx-inventory-card__label">Near Expiry</span>
-            <strong>{toInt(alerts.nearExpiryItems)}</strong>
           </div>
         </article>
       </div>

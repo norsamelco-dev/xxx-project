@@ -1,5 +1,4 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
-import { ThemedDataGrid } from '../components/ThemedDataGrid'
 import { ThemedButton } from '../components/ThemedButton'
 import AdminShell from '../components/AdminShell'
 import { ButtonLabel } from '../components/ButtonIcon'
@@ -444,7 +443,7 @@ function MachineTerminalRegistrationPage() {
 
           <div className="panel-header">
             <div>
-              <h2>Select a row to modify or delete details.</h2>
+              <h2>Select a terminal card to modify or delete details.</h2>
             </div>
           </div>
 
@@ -453,56 +452,79 @@ function MachineTerminalRegistrationPage() {
           {!isLoading && rows.length === 0 ? <div className="empty-state">No terminal records found.</div> : null}
 
           {!isLoading && rows.length > 0 ? (
-            <ThemedDataGrid>
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>MachineName</th>
-                    <th>SerialNumber</th>
-                    <th>MachineIdentificationNumber</th>
-                    <th>PermitToUseNumber</th>
-                    <th>OR_Start</th>
-                    <th>OR_End</th>
-                    <th>OR_Current</th>
-                    <th>StartOfValidity</th>
-                    <th>EndOfValidity</th>
-                    <th>ACTIVE</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr
-                      key={row.ID}
-                      className={`${row.ID === selectedRowId ? 'terminal-row-selected' : ''} ${duplicateRowIds.includes(row.ID) ? 'terminal-row-duplicate' : ''}`.trim()}
-                      onClick={() => setSelectedRowId(row.ID)}
-                    >
-                      <td>
+            <div className="terminal-card-grid">
+              {rows.map((row) => {
+                const isSelected = row.ID === selectedRowId
+                const isDuplicate = duplicateRowIds.includes(row.ID)
+
+                return (
+                  <article
+                    key={row.ID}
+                    className={`terminal-card${isSelected ? ' terminal-card--selected' : ''}${isDuplicate ? ' terminal-card--duplicate' : ''}`}
+                    onClick={() => setSelectedRowId(row.ID)}
+                  >
+                    <div className="terminal-card__header">
+                      <div className="terminal-card__title-group">
                         <span className={`terminal-id-pill ${row.is_active ? 'active' : 'inactive'}`}>{row.ID}</span>
-                      </td>
-                      <td>{row.machine_name || ''}</td>
-                      <td>{row.serial_number || ''}</td>
-                      <td>{row.min_number || ''}</td>
-                      <td>{row.ptu_number || ''}</td>
-                      <td>{formatOrValue(row.or_start)}</td>
-                      <td>{formatOrValue(row.or_end)}</td>
-                      <td>{formatOrValue(row.current_or)}</td>
-                      <td>{toInputDate(row.valid_start)}</td>
-                      <td>{toInputDate(row.valid_end)}</td>
-                      <td>
-                        <input type="checkbox" checked={Boolean(row.is_active)} readOnly />
-                      </td>
-                      <td>
-                        <ThemedButton className="terminal-action" variant="secondary" type="button" onClick={() => handleEdit(row)}>
-                          <ButtonLabel icon="edit">MODIFY</ButtonLabel>
-                        </ThemedButton>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </ThemedDataGrid>
+                        <div>
+                          <h3 className="terminal-card__title">{row.machine_name || 'Unnamed terminal'}</h3>
+                          <p className="terminal-card__status">{row.is_active ? 'Active' : 'Inactive'}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <dl className="terminal-card__details">
+                      <div className="terminal-card__detail">
+                        <dt>Serial Number</dt>
+                        <dd>{row.serial_number || '-'}</dd>
+                      </div>
+                      <div className="terminal-card__detail">
+                        <dt>Machine ID No.</dt>
+                        <dd>{row.min_number || '-'}</dd>
+                      </div>
+                      <div className="terminal-card__detail">
+                        <dt>Permit To Use</dt>
+                        <dd>{row.ptu_number || '-'}</dd>
+                      </div>
+                      <div className="terminal-card__detail">
+                        <dt>OR Start</dt>
+                        <dd>{formatOrValue(row.or_start) || '-'}</dd>
+                      </div>
+                      <div className="terminal-card__detail">
+                        <dt>OR End</dt>
+                        <dd>{formatOrValue(row.or_end) || '-'}</dd>
+                      </div>
+                      <div className="terminal-card__detail">
+                        <dt>OR Current</dt>
+                        <dd>{formatOrValue(row.current_or) || '-'}</dd>
+                      </div>
+                      <div className="terminal-card__detail">
+                        <dt>Valid From</dt>
+                        <dd>{toInputDate(row.valid_start) || '-'}</dd>
+                      </div>
+                      <div className="terminal-card__detail">
+                        <dt>Valid Until</dt>
+                        <dd>{toInputDate(row.valid_end) || '-'}</dd>
+                      </div>
+                    </dl>
+
+                    <div className="terminal-card__actions">
+                      <ThemedButton
+                        className="terminal-action"
+                        variant="secondary"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleEdit(row)
+                        }}
+                      >
+                        <ButtonLabel icon="edit">Modify</ButtonLabel>
+                      </ThemedButton>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
           ) : null}
         </article>
 

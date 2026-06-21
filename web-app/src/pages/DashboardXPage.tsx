@@ -43,7 +43,7 @@ const DASHBOARD_TABS: DashboardTab[] = [
   {
     key: 'overview',
     label: 'Overview',
-    description: 'Key sales KPIs, inventory alerts, and a compact sales trend snapshot.',
+    description: 'Key sales KPIs, damage summary, and a compact sales trend snapshot.',
     icon: 'view',
   },
   {
@@ -55,7 +55,7 @@ const DASHBOARD_TABS: DashboardTab[] = [
   {
     key: 'inventory',
     label: 'Inventory',
-    description: 'Current inventory snapshot: stock levels, alerts, and movement estimates.',
+    description: 'Current inventory snapshot: product counts and movement estimates.',
     icon: 'details',
   },
   {
@@ -245,11 +245,10 @@ function DashboardXPage() {
 
   return (
     <AdminShell title="DashboardX" description="Operational analytics with sales, inventory, and financial views." hideTopbar>
-      <section className="dashboardx-shell inventory-tabs-shell">
-        <div className="dashboardx-shell__chrome">
+      <section className="settings-stack inventory-tabs-shell">
         {error ? <div className="error-state">{error}</div> : null}
 
-        <article className="surface-card surface-card--wide inventory-workspace-card">
+        <article className="surface-card surface-card--wide inventory-workspace-card admin-page-main">
           <div className="audit-card-header">
             <div>
               <p className="admin-breadcrumb">Dashboard / DashboardX</p>
@@ -343,44 +342,43 @@ function DashboardXPage() {
               </div>
             ) : null}
 
-            <ThemedButton variant="primary" type="submit" disabled={isTabLoading}>
-              <ButtonLabel icon="generate">{isTabLoading ? 'Loading...' : 'Generate'}</ButtonLabel>
-            </ThemedButton>
+            <div className="audit-filter-actions dashboardx-filter-actions">
+              <ThemedButton variant="primary" type="submit" disabled={isTabLoading}>
+                <ButtonLabel icon="generate">{isTabLoading ? 'Loading...' : 'Generate'}</ButtonLabel>
+              </ThemedButton>
 
-            <ThemedButton variant="secondary" type="button" onClick={() => void handleReload()} disabled={isTabLoading}>
-              <ButtonLabel icon="reload">Reload</ButtonLabel>
-            </ThemedButton>
+              <ThemedButton variant="secondary" type="button" onClick={() => void handleReload()} disabled={isTabLoading}>
+                <ButtonLabel icon="reload">Reload</ButtonLabel>
+              </ThemedButton>
+            </div>
           </form>
+
+          <div className="inventory-tab-content dashboardx-tab-content" role="tabpanel">
+            {isTabLoading && !hasTabData ? <div className="empty-state">Loading {activeTabMeta.label} metrics...</div> : null}
+
+            {activeTab === 'overview' && overviewData ? <DashboardXOverviewTab data={overviewData} /> : null}
+
+            {activeTab === 'sales' && salesData ? (
+              <Suspense fallback={<div className="empty-state">Loading sales charts...</div>}>
+                <DashboardXSalesTab data={salesData} />
+              </Suspense>
+            ) : null}
+
+            {activeTab === 'inventory' && inventoryData ? <DashboardXInventoryTab data={inventoryData} /> : null}
+
+            {activeTab === 'financial' && financialData ? (
+              <Suspense fallback={<div className="empty-state">Loading financial charts...</div>}>
+                <DashboardXFinancialTab data={financialData} />
+              </Suspense>
+            ) : null}
+
+            {activeTab === 'damage' && damageData ? (
+              <Suspense fallback={<div className="empty-state">Loading damage report charts...</div>}>
+                <DashboardXDamageTab data={damageData} />
+              </Suspense>
+            ) : null}
+          </div>
         </article>
-        </div>
-
-        <div className="dashboardx-shell__body">
-        <div className="inventory-tab-content dashboardx-tab-content" role="tabpanel">
-          {isTabLoading && !hasTabData ? <div className="empty-state">Loading {activeTabMeta.label} metrics...</div> : null}
-
-          {activeTab === 'overview' && overviewData ? <DashboardXOverviewTab data={overviewData} /> : null}
-
-          {activeTab === 'sales' && salesData ? (
-            <Suspense fallback={<div className="empty-state">Loading sales charts...</div>}>
-              <DashboardXSalesTab data={salesData} />
-            </Suspense>
-          ) : null}
-
-          {activeTab === 'inventory' && inventoryData ? <DashboardXInventoryTab data={inventoryData} /> : null}
-
-          {activeTab === 'financial' && financialData ? (
-            <Suspense fallback={<div className="empty-state">Loading financial charts...</div>}>
-              <DashboardXFinancialTab data={financialData} />
-            </Suspense>
-          ) : null}
-
-          {activeTab === 'damage' && damageData ? (
-            <Suspense fallback={<div className="empty-state">Loading damage report charts...</div>}>
-              <DashboardXDamageTab data={damageData} />
-            </Suspense>
-          ) : null}
-        </div>
-        </div>
       </section>
     </AdminShell>
   )

@@ -44,7 +44,7 @@ function DashboardXInventoryTab({ data }: DashboardXInventoryTabProps) {
       <div className="panel-header">
         <div>
           <h2>Inventory</h2>
-          <p>Low stock, out of stock, stock movement, and near expiry alerts (current snapshot).</p>
+          <p>Product counts and stock movement snapshot (current data).</p>
         </div>
       </div>
 
@@ -54,30 +54,6 @@ function DashboardXInventoryTab({ data }: DashboardXInventoryTabProps) {
           <div>
             <span className="dashboardx-inventory-card__label">Products in Table</span>
             <strong>{toInt(inventory.totalProducts)}</strong>
-          </div>
-        </article>
-
-        <article className="dashboardx-inventory-card dashboardx-inventory-card--warning">
-          <div className="dashboardx-inventory-card__icon" aria-hidden="true">⚠️</div>
-          <div>
-            <span className="dashboardx-inventory-card__label">Low Stock Alerts</span>
-            <strong>{toInt(inventory.lowStockAlerts)}</strong>
-          </div>
-        </article>
-
-        <article className="dashboardx-inventory-card dashboardx-inventory-card--critical">
-          <div className="dashboardx-inventory-card__icon" aria-hidden="true">⛔</div>
-          <div>
-            <span className="dashboardx-inventory-card__label">Out of Stock Items</span>
-            <strong>{toInt(inventory.outOfStockItems)}</strong>
-          </div>
-        </article>
-
-        <article className="dashboardx-inventory-card dashboardx-inventory-card--attention">
-          <div className="dashboardx-inventory-card__icon" aria-hidden="true">⏳</div>
-          <div>
-            <span className="dashboardx-inventory-card__label">Near Expiry</span>
-            <strong>{toInt(inventory.nearExpiryItems)}</strong>
           </div>
         </article>
 

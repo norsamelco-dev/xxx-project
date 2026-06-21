@@ -301,68 +301,67 @@ function AuditLogsPage() {
         {success ? <div className="success-state">{success}</div> : null}
 
         <article className="surface-card surface-card--wide admin-page-main">
-          <div className="audit-card-header">
-            <div>
+          <div className="audit-card-header audit-card-header--with-filters">
+            <div className="audit-card-header__intro">
               <p className="admin-breadcrumb">Dashboard / AUDIT LOGS</p>
               <h1 className="audit-card-title">AUDIT LOGS</h1>
               <p className="audit-card-description">Track system activity by date range across API actions and modules.</p>
             </div>
 
+            <form className="audit-filter-bar audit-filter-bar--header" onSubmit={handleGenerate}>
+              <div className="field">
+                <label htmlFor="audit_start_date">Select Range: From</label>
+                <input
+                  id="audit_start_date"
+                  name="audit_start_date"
+                  type="date"
+                  value={startDate}
+                  onChange={(event) => setStartDate(event.target.value)}
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="audit_end_date">To</label>
+                <input
+                  id="audit_end_date"
+                  name="audit_end_date"
+                  type="date"
+                  value={endDate}
+                  onChange={(event) => setEndDate(event.target.value)}
+                />
+              </div>
+
+              <div className="field">
+                <label htmlFor="audit_username_filter">User</label>
+                <select
+                  id="audit_username_filter"
+                  value={usernameFilter}
+                  onChange={(event) => setUsernameFilter(event.target.value)}
+                >
+                  <option value="all">All users</option>
+                  {userOptions.map((user) => (
+                    <option key={`${user.user_id}-${user.username}`} value={user.username}>
+                      {user.username} ({user.user_id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="audit-filter-actions">
+                <ThemedButton variant="primary" className="audit-generate-button" type="submit" disabled={isLoading}>
+                  <ButtonLabel icon="generate">{isLoading ? 'Loading...' : 'Generate'}</ButtonLabel>
+                </ThemedButton>
+                <button
+                  className="topbar-button topbar-button--ghost audit-export-button"
+                  type="button"
+                  onClick={handleExportPdfClick}
+                  disabled={isLoading || isExporting || rows.length === 0}
+                >
+                  <ButtonLabel icon="export">{isExporting ? 'Exporting PDF...' : 'Export to PDF'}</ButtonLabel>
+                </button>
+              </div>
+            </form>
           </div>
-
-          <form className="audit-filter-bar" onSubmit={handleGenerate}>
-            <div className="field">
-              <label htmlFor="audit_start_date">Select Range: From</label>
-              <input
-                id="audit_start_date"
-                name="audit_start_date"
-                type="date"
-                value={startDate}
-                onChange={(event) => setStartDate(event.target.value)}
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="audit_end_date">To</label>
-              <input
-                id="audit_end_date"
-                name="audit_end_date"
-                type="date"
-                value={endDate}
-                onChange={(event) => setEndDate(event.target.value)}
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="audit_username_filter">User</label>
-              <select
-                id="audit_username_filter"
-                value={usernameFilter}
-                onChange={(event) => setUsernameFilter(event.target.value)}
-              >
-                <option value="all">All users</option>
-                {userOptions.map((user) => (
-                  <option key={`${user.user_id}-${user.username}`} value={user.username}>
-                    {user.username} ({user.user_id})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="audit-filter-actions">
-              <ThemedButton variant="primary" className="audit-generate-button" type="submit" disabled={isLoading}>
-                <ButtonLabel icon="generate">{isLoading ? 'Loading...' : 'Generate'}</ButtonLabel>
-              </ThemedButton>
-              <button
-                className="topbar-button topbar-button--ghost audit-export-button"
-                type="button"
-                onClick={handleExportPdfClick}
-                disabled={isLoading || isExporting || rows.length === 0}
-              >
-                <ButtonLabel icon="export">{isExporting ? 'Exporting PDF...' : 'Export to PDF'}</ButtonLabel>
-              </button>
-            </div>
-          </form>
 
           {isLoading ? <div className="empty-state">Loading audit logs...</div> : null}
           {!isLoading && !hasGenerated ? <div className="empty-state">Select filters, then click Generate.</div> : null}

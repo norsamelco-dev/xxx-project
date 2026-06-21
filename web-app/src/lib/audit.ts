@@ -25,7 +25,7 @@ export const AUDIT_PAGES = {
   PROCUREMENT: 'Procurement Workspace',
   PROCUREMENT_REQUISITION: 'Procurement > Purchase Requisition',
   PROCUREMENT_ORDER: 'Procurement > Purchase Order',
-  PROCUREMENT_RECEIVING: 'Procurement > Receiving Report',
+  BRANCHES: 'Branches',
 } as const
 
 export function buildAuditDescription(page: string, detail: string) {

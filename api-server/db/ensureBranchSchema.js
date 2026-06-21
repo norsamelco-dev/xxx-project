@@ -34,9 +34,53 @@ const BRANCH_SCOPED_TABLES = [
   'accounts_payable_payments',
 ];
 
-async function columnExists(tableName, columnName) {
-  const pool = getPool();
-  const [rows] = await pool.query(
+// Child/detail tables first — must include every BRANCH_SCOPED_TABLES entry exactly once.
+const BRANCH_SCOPED_DELETE_ORDER = [
+  'damage_report_sync_log_batches',
+  'damage_report_sync_log_items',
+  'damage_report_sync_logs',
+  'damage_report_items',
+  'damage_reports',
+  'damage_reason_options',
+  'accounts_payable_payments',
+  'procurement_match_reviews',
+  'supplier_invoice_items',
+  'supplier_invoices',
+  'receiving_report_items',
+  'receiving_reports',
+  'purchase_order_lines',
+  'purchase_order_items',
+  'purchase_orders',
+  'purchase_requisition_items',
+  'purchase_requisitions',
+  'suppliers',
+  'sales_b',
+  'sales_a',
+  'sales_series',
+  'cart',
+  'product_batches_sync_history',
+  'product_batches_template',
+  'product_batches',
+  'products',
+  'product_category',
+  'terminals_a',
+  'users',
+  'receipt_heading',
+  'audit_logs',
+];
+
+const scopedTableSet = new Set(BRANCH_SCOPED_TABLES);
+const deleteOrderSet = new Set(BRANCH_SCOPED_DELETE_ORDER);
+if (
+  scopedTableSet.size !== deleteOrderSet.size
+  || BRANCH_SCOPED_TABLES.some((tableName) => !deleteOrderSet.has(tableName))
+) {
+  throw new Error('BRANCH_SCOPED_DELETE_ORDER must include every BRANCH_SCOPED_TABLES entry exactly once.');
+}
+
+async function columnExists(tableName, columnName, executor = null) {
+  const queryTarget = executor || getPool();
+  const [rows] = await queryTarget.query(
     `SELECT COLUMN_NAME
      FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
@@ -54,9 +98,9 @@ async function indexExists(tableName, indexName) {
   return rows.length > 0;
 }
 
-async function tableExists(tableName) {
-  const pool = getPool();
-  const [rows] = await pool.query(
+async function tableExists(tableName, executor = null) {
+  const queryTarget = executor || getPool();
+  const [rows] = await queryTarget.query(
     `SELECT TABLE_NAME
      FROM INFORMATION_SCHEMA.TABLES
      WHERE TABLE_SCHEMA = DATABASE()
@@ -241,6 +285,7 @@ async function ensureBranchSchema() {
 
 module.exports = {
   BRANCH_SCOPED_TABLES,
+  BRANCH_SCOPED_DELETE_ORDER,
   ensureBranchSchema,
   ensureDefaultBranch,
   tableExists,

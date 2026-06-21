@@ -1,4 +1,16 @@
+const fs = require('fs/promises');
+const path = require('path');
 const { getPool } = require('../db');
+const {
+  BRANCH_SCOPED_DELETE_ORDER,
+  columnExists,
+  tableExists,
+} = require('../db/ensureBranchSchema');
+
+const LOGOS_DIR = path.resolve(__dirname, '..', 'api', 'logos');
+const PRODUCT_IMAGES_DIR = path.resolve(__dirname, '..', 'api', 'product-images');
+const LOGOS_PUBLIC_PREFIX = '/api/logos/';
+const PRODUCT_IMAGES_PUBLIC_PREFIX = '/api/product-images/';
 
 function normalizeText(value) {
   if (value === undefined || value === null) {
@@ -100,8 +112,38 @@ async function findBranchByCode(branchCode) {
   return mapBranchRow(rows[0] || null);
 }
 
+async function generateBranchCode() {
+  const [rows] = await getPool().query(
+    `SELECT branch_code
+     FROM branches
+     WHERE UPPER(branch_code) REGEXP '^BR[0-9]+$'`,
+  );
+
+  let maxSequence = 0;
+  for (const row of rows) {
+    const match = /^BR(\d+)$/i.exec(String(row.branch_code || '').trim());
+    if (match) {
+      maxSequence = Math.max(maxSequence, Number(match[1]));
+    }
+  }
+
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    const candidate = `BR${String(maxSequence + 1 + attempt).padStart(3, '0')}`;
+    const existing = await findBranchByCode(candidate);
+    if (!existing) {
+      return candidate;
+    }
+  }
+
+  const error = new Error('Unable to generate a unique branch code.');
+  error.statusCode = 500;
+  throw error;
+}
+
 async function createBranch(payload) {
-  const branch_code = normalizeBranchCode(payload.branch_code);
+  const branch_code = normalizeText(payload.branch_code)
+    ? normalizeBranchCode(payload.branch_code)
+    : await generateBranchCode();
   const branch_name = normalizeBranchName(payload.branch_name);
   const address = normalizeText(payload.address);
   const is_active = normalizeActiveFlag(payload.is_active);
@@ -190,22 +232,221 @@ async function updateBranch(branchId, payload) {
   return getBranchById(branchId);
 }
 
-async function tableExists(tableName) {
+function toAbsoluteProductImagePath(publicPath) {
+  if (!publicPath || typeof publicPath !== 'string') {
+    return null;
+  }
+
+  if (!publicPath.startsWith(PRODUCT_IMAGES_PUBLIC_PREFIX)) {
+    return null;
+  }
+
+  const fileName = path.basename(publicPath);
+  return fileName ? path.join(PRODUCT_IMAGES_DIR, fileName) : null;
+}
+
+function toAbsoluteLogoPath(publicPath) {
+  if (!publicPath || typeof publicPath !== 'string') {
+    return null;
+  }
+
+  if (!publicPath.startsWith(LOGOS_PUBLIC_PREFIX)) {
+    return null;
+  }
+
+  const fileName = path.basename(publicPath);
+  return fileName ? path.join(LOGOS_DIR, fileName) : null;
+}
+
+async function unlinkIfExists(absolutePath) {
+  if (!absolutePath) {
+    return;
+  }
+
+  try {
+    await fs.unlink(absolutePath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  }
+}
+
+async function collectBranchAssetPaths(branchId, executor = null) {
+  const queryTarget = executor || getPool();
+  const productImages = [];
+  const receiptLogoPaths = [];
+
+  if (await tableExists('products', queryTarget) && await columnExists('products', 'product_image_path', queryTarget)) {
+    const [rows] = await queryTarget.query(
+      `SELECT product_image_path
+       FROM products
+       WHERE branch_id = ?
+         AND product_image_path IS NOT NULL
+         AND product_image_path <> ''`,
+      [branchId],
+    );
+
+    for (const row of rows) {
+      if (row.product_image_path) {
+        productImages.push(row.product_image_path);
+      }
+    }
+  }
+
+  if (await tableExists('receipt_heading', queryTarget)) {
+    const [rows] = await queryTarget.query(
+      `SELECT business_logo_path, developer_logo_path
+       FROM receipt_heading
+       WHERE branch_id = ?
+       LIMIT 1`,
+      [branchId],
+    );
+
+    if (rows[0]) {
+      if (rows[0].business_logo_path) {
+        receiptLogoPaths.push(rows[0].business_logo_path);
+      }
+      if (rows[0].developer_logo_path) {
+        receiptLogoPaths.push(rows[0].developer_logo_path);
+      }
+    }
+  }
+
+  return { productImages, receiptLogoPaths };
+}
+
+async function isLogoPathReferenced(logoPath) {
+  if (!logoPath || !(await tableExists('receipt_heading'))) {
+    return false;
+  }
+
   const [rows] = await getPool().query(
-    `SELECT TABLE_NAME
-     FROM INFORMATION_SCHEMA.TABLES
-     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
-     LIMIT 1`,
-    [tableName],
+    `SELECT COUNT(*) AS count
+     FROM receipt_heading
+     WHERE business_logo_path = ?
+        OR developer_logo_path = ?`,
+    [logoPath, logoPath],
   );
-  return rows.length > 0;
+
+  return Number(rows[0]?.count || 0) > 0;
+}
+
+async function deleteBranchAssetFiles(assetPaths) {
+  const uniqueProductImages = [...new Set(assetPaths.productImages)];
+  const uniqueLogoPaths = [...new Set(assetPaths.receiptLogoPaths)];
+
+  for (const publicPath of uniqueProductImages) {
+    await unlinkIfExists(toAbsoluteProductImagePath(publicPath));
+  }
+
+  for (const publicPath of uniqueLogoPaths) {
+    if (await isLogoPathReferenced(publicPath)) {
+      continue;
+    }
+    await unlinkIfExists(toAbsoluteLogoPath(publicPath));
+  }
+}
+
+async function countBranchScopedRows(branchId, executor = null) {
+  const queryTarget = executor || getPool();
+  const counts = {};
+
+  for (const tableName of BRANCH_SCOPED_DELETE_ORDER) {
+    if (!(await tableExists(tableName, queryTarget))) {
+      continue;
+    }
+
+    if (!(await columnExists(tableName, 'branch_id', queryTarget))) {
+      continue;
+    }
+
+    const [rows] = await queryTarget.query(
+      `SELECT COUNT(*) AS count FROM ?? WHERE branch_id = ?`,
+      [tableName, branchId],
+    );
+    counts[tableName] = Number(rows[0]?.count || 0);
+  }
+
+  return counts;
+}
+
+async function assertBranchScopedRowsCleared(branchId) {
+  const counts = await countBranchScopedRows(branchId);
+  const remaining = Object.entries(counts).filter(([, count]) => count > 0);
+
+  if (remaining.length > 0) {
+    const summary = remaining.map(([tableName, count]) => `${tableName}(${count})`).join(', ');
+    const error = new Error(`Branch delete left rows in: ${summary}`);
+    error.statusCode = 500;
+    throw error;
+  }
+}
+
+async function deleteBranchScopedRows(connection, branchId) {
+  for (const tableName of BRANCH_SCOPED_DELETE_ORDER) {
+    if (!(await tableExists(tableName, connection))) {
+      continue;
+    }
+
+    if (!(await columnExists(tableName, 'branch_id', connection))) {
+      continue;
+    }
+
+    await connection.query(`DELETE FROM ?? WHERE branch_id = ?`, [tableName, branchId]);
+  }
+}
+
+async function deleteBranch(branchId) {
+  const existing = await getBranchById(branchId);
+  if (!existing) {
+    return null;
+  }
+
+  const [branchCountRows] = await getPool().query(`SELECT COUNT(*) AS count FROM branches`);
+  if (Number(branchCountRows[0]?.count || 0) <= 1) {
+    const error = new Error('Cannot delete the last remaining branch.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const assetPaths = await collectBranchAssetPaths(branchId);
+  const pool = getPool();
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    await deleteBranchScopedRows(connection, branchId);
+
+    const [result] = await connection.query(`DELETE FROM branches WHERE branch_id = ?`, [branchId]);
+    if (!result.affectedRows) {
+      await connection.rollback();
+      return null;
+    }
+
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  await assertBranchScopedRowsCleared(branchId);
+  await deleteBranchAssetFiles(assetPaths);
+
+  return existing;
 }
 
 module.exports = {
   listBranches,
   getBranchById,
   findBranchByCode,
+  generateBranchCode,
   createBranch,
   updateBranch,
+  deleteBranch,
+  countBranchScopedRows,
   mapBranchRow,
 };
