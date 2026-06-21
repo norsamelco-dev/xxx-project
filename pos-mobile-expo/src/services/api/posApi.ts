@@ -200,8 +200,10 @@ export async function runZReport(machineName: string) {
   return response.data.data
 }
 
-export async function getReceiptHeadingPublic() {
-  const response = await apiClient.get<{ data: ReceiptHeading | null }>('/api/receipt-heading/public')
+export async function getReceiptHeadingPublic(branchCode?: string) {
+  const response = await apiClient.get<{ data: ReceiptHeading | null }>('/api/receipt-heading/public', {
+    params: branchCode ? { branch_code: branchCode } : {},
+  })
   return response.data.data
 }
 

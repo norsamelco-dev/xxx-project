@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, Modal, Pressable, Text, View } from 'react-native'
 import { lookupTerminal } from '../../services/api/posApi'
-import { mergeTerminalIntoConfig } from '../../services/config/terminalConfig'
+import { mergeTerminalIntoConfig, resolveBranchCode, formatBranchLabel } from '../../services/config/terminalConfig'
 import { saveConfig } from '../../services/config/configStore'
 import type { PosConfig } from '../../types/config'
 import type { TerminalLookup } from '../../types/pos'
@@ -58,7 +58,7 @@ export default function TerminalInformationModal({
     setIsLoading(true)
     setLoadWarning('')
 
-    void lookupTerminal(config.terminal_name)
+    void lookupTerminal(config.terminal_name, resolveBranchCode(config))
       .then(async (data) => {
         if (!isMounted) {
           return
@@ -89,9 +89,20 @@ export default function TerminalInformationModal({
       isMounted = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh only when modal opens or terminal changes
-  }, [visible, config.terminal_name])
+  }, [visible, config.terminal_name, config.branch_code])
 
-  const branch = terminal?.branch || config.branch || '-'
+  const branch = formatBranchLabel({
+    branch_name: terminal?.branch_name ?? config.branch_name,
+    branch_code: terminal?.branch_code ?? config.branch_code,
+    branch: terminal?.branch || config.branch,
+  })
+  const branchCode = terminal?.branch_code || config.branch_code || '-'
+  const branchId =
+    terminal?.branch_id != null
+      ? String(terminal.branch_id)
+      : config.branch_id != null
+        ? String(config.branch_id)
+        : '-'
   const status = terminal?.is_active === false ? 'Inactive' : terminal ? 'Active' : '-'
   const currentOr = terminal?.current_or != null ? formatOrDisplay(terminal.current_or) : '-'
   const busy = isLoading || isPrinting
@@ -123,6 +134,8 @@ export default function TerminalInformationModal({
               ) : null}
               <DetailRow label="Terminal" value={config.terminal_name || '-'} />
               <DetailRow label="Branch" value={branch} />
+              <DetailRow label="Branch code" value={branchCode} />
+              <DetailRow label="Branch ID" value={branchId} />
               <DetailRow label="MIN #" value={config.min_number || terminal?.min_number || '-'} />
               <DetailRow label="Serial #" value={config.serial_no || terminal?.serial_no || '-'} />
               <DetailRow label="PTU #" value={config.ptu_no || terminal?.ptu_no || '-'} />

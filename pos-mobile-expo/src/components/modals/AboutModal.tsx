@@ -7,6 +7,7 @@ import { colors, spacing } from '../../styles/theme'
 
 type Props = {
   visible: boolean
+  branchCode?: string
   onClose: () => void
 }
 
@@ -20,7 +21,7 @@ function resolveImageUrl(path: string | null | undefined) {
   return `${getApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`
 }
 
-export default function AboutModal({ visible, onClose }: Props) {
+export default function AboutModal({ visible, branchCode, onClose }: Props) {
   const [heading, setHeading] = useState<ReceiptHeading | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
@@ -34,7 +35,7 @@ export default function AboutModal({ visible, onClose }: Props) {
     setIsLoading(true)
     setError('')
 
-    void getReceiptHeadingPublic()
+    void getReceiptHeadingPublic(branchCode)
       .then((data) => {
         if (isMounted) {
           setHeading(data)
@@ -54,7 +55,7 @@ export default function AboutModal({ visible, onClose }: Props) {
     return () => {
       isMounted = false
     }
-  }, [visible])
+  }, [visible, branchCode])
 
   const logoUri = resolveImageUrl(heading?.developer_logo_path)
 

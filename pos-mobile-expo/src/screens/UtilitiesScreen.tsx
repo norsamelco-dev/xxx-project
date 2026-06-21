@@ -6,6 +6,7 @@ import { loadConfig, saveConfig } from '../services/config/configStore'
 import { reregisterTerminal } from '../services/config/reregisterTerminal'
 import { useAuth } from '../context/AuthContext'
 import { usePosSession } from '../context/PosSessionContext'
+import { formatBranchLabel } from '../services/config/terminalConfig'
 import type { PosConfig } from '../types/config'
 import type { RootStackParamList } from '../navigation/types'
 import { commonStyles } from '../styles/common'
@@ -32,7 +33,8 @@ export default function UtilitiesScreen({ navigation }: Props) {
         {config ? (
           <View style={{ marginBottom: 16 }}>
             <ConfigLine label="Terminal" value={config.terminal_name} />
-            <ConfigLine label="Branch" value={config.branch} />
+            <ConfigLine label="Branch" value={formatBranchLabel(config)} />
+            <ConfigLine label="Branch code" value={config.branch_code || '-'} />
             <ConfigLine label="Serial No." value={config.serial_no} />
             <ConfigLine label="MIN" value={config.min_number} />
             <ConfigLine label="PTU No." value={config.ptu_no} />

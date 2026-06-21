@@ -1,5 +1,6 @@
 import { Text, View } from 'react-native'
 import type { PosConfig } from '../../types/config'
+import { formatBranchLabel } from '../../services/config/terminalConfig'
 import { colors, spacing } from '../../styles/theme'
 
 type Props = {
@@ -23,7 +24,7 @@ export default function TerminalFooter({ config }: Props) {
         Ctrl+Q Qty · Ctrl+S Search · Ctrl+D Discount · Ctrl+Enter Checkout
       </Text>
       <View style={{ alignItems: 'flex-end' }}>
-        <Text style={{ color: colors.textMuted, fontSize: 11 }}>{config.branch}</Text>
+        <Text style={{ color: colors.textMuted, fontSize: 11 }}>{formatBranchLabel(config)}</Text>
         <Text style={{ color: colors.textMuted, fontSize: 11 }}>
           MIN: {config.min_number} · SN: {config.serial_no} · PTU: {config.ptu_no}
         </Text>

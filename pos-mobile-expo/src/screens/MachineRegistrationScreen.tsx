@@ -10,16 +10,31 @@ import { commonStyles } from '../styles/common'
 type Props = NativeStackScreenProps<RootStackParamList, 'MachineRegistration'>
 
 export default function MachineRegistrationScreen({ navigation }: Props) {
+  const [branchCode, setBranchCode] = useState('')
   const [terminalName, setTerminalName] = useState('')
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   async function handleSave() {
     setError('')
+
+    const normalizedBranchCode = branchCode.trim()
+    const normalizedTerminalName = terminalName.trim()
+
+    if (!normalizedBranchCode) {
+      setError('Branch code is required.')
+      return
+    }
+
+    if (!normalizedTerminalName) {
+      setError('Terminal name is required.')
+      return
+    }
+
     setIsSubmitting(true)
 
     try {
-      const terminal = await lookupTerminal(terminalName)
+      const terminal = await lookupTerminal(normalizedTerminalName, normalizedBranchCode)
       const config = buildConfigFromTerminal(terminal, { default_printer: '' })
 
       await saveConfig(config)
@@ -37,7 +52,18 @@ export default function MachineRegistrationScreen({ navigation }: Props) {
     <View style={[commonStyles.screen, { justifyContent: 'center', alignItems: 'center' }]}>
       <View style={[commonStyles.card, { width: 360, maxWidth: '92%', alignSelf: 'center' }]}>
         <Text style={commonStyles.title}>Machine Registration</Text>
-        <Text style={commonStyles.subtitle}>Enter the terminal name to use on this device.</Text>
+        <Text style={commonStyles.subtitle}>
+          Enter the branch code and terminal name assigned to this device.
+        </Text>
+        <Text style={commonStyles.label}>Branch code</Text>
+        <TextInput
+          style={commonStyles.input}
+          value={branchCode}
+          onChangeText={setBranchCode}
+          placeholder="MAIN"
+          placeholderTextColor="#64748b"
+          autoCapitalize="characters"
+        />
         <Text style={commonStyles.label}>Terminal name</Text>
         <TextInput
           style={commonStyles.input}

@@ -21,6 +21,30 @@ export function normalizeMinNumber(value: unknown): string {
   return String(value).trim()
 }
 
+export function resolveBranchCode(config?: Pick<PosConfig, 'branch_code'> | null): string | undefined {
+  const code = config?.branch_code?.trim()
+  return code || undefined
+}
+
+export function formatBranchLabel(config: Pick<PosConfig, 'branch_name' | 'branch_code' | 'branch'>): string {
+  const name = config.branch_name?.trim() || config.branch?.trim()
+  const code = config.branch_code?.trim()
+
+  if (name && code) {
+    return `${name} (${code})`
+  }
+
+  if (name) {
+    return name
+  }
+
+  if (code) {
+    return code
+  }
+
+  return '-'
+}
+
 export function normalizePosConfig(config: PosConfig): PosConfig {
   return {
     ...config,
@@ -81,7 +105,7 @@ export function mergeTerminalIntoConfig(config: PosConfig, terminal: TerminalLoo
 
 /** Refresh terminal identity fields from the server and persist locally (incl. min_number). */
 export async function syncTerminalConfigToLocal(config: PosConfig): Promise<PosConfig> {
-  const terminal = await lookupTerminal(config.terminal_name)
+  const terminal = await lookupTerminal(config.terminal_name, resolveBranchCode(config))
   const next = mergeTerminalIntoConfig(config, terminal)
   await saveConfig(next)
   return next

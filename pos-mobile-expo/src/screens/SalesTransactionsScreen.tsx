@@ -27,6 +27,7 @@ import {
   voidPosTransactionItem,
 } from '../services/api/posApi'
 import { printSalesReceipt } from '../services/printer/printerService'
+import { resolveBranchCode } from '../services/config/terminalConfig'
 import type { SalesItemRow, SalesSeriesRow, SalesTransactionRow } from '../types/sales'
 import type { RootStackParamList } from '../navigation/types'
 import { fonts, spacing } from '../styles/theme'
@@ -336,7 +337,7 @@ export default function SalesTransactionsScreen({ route }: Props) {
 
     try {
       const receipt = await getPosTransactionReceipt(config.terminal_name, orsi)
-      const heading = await getReceiptHeadingPublic()
+      const heading = await getReceiptHeadingPublic(resolveBranchCode(config))
       const cashierName = user?.fullName || user?.username || 'Cashier'
       const lines = mapCheckoutLinesToCartLines(receipt.checkout.lines)
       const totals = mapCheckoutTotalsToCartTotals(receipt.checkout.totals)

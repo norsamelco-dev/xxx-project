@@ -218,6 +218,7 @@ async function resolvePosSalesAccess(request) {
   );
 
   return {
+    branchId: request.branchId,
     machineName: terminal.terminal_name,
     userId: request.posUser.userId,
     minNumber: terminal.min_number,

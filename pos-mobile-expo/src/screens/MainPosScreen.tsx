@@ -33,6 +33,7 @@ import {
   setStartingBalance,
 } from '../services/api/posApi'
 import { saveConfig } from '../services/config/configStore'
+import { resolveBranchCode } from '../services/config/terminalConfig'
 import { buildReceiptByLayout } from '../services/printer/layouts/receiptLayouts'
 import {
   applyPrintMarginsToText,
@@ -256,8 +257,9 @@ export default function MainPosScreen({ navigation }: Props) {
 
   useEffect(() => {
     let isMounted = true
+    const branchCode = resolveBranchCode(config)
 
-    void getReceiptHeadingPublic()
+    void getReceiptHeadingPublic(branchCode)
       .then((heading) => {
         if (isMounted) {
           setReceiptHeading(heading)
@@ -272,7 +274,7 @@ export default function MainPosScreen({ navigation }: Props) {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [config?.branch_code])
 
   useEffect(() => {
     const nextTheme = resolveThemeId(config?.ui_theme)
@@ -639,9 +641,10 @@ export default function MainPosScreen({ navigation }: Props) {
     setReportPrintPayload(null)
 
     try {
+      const branchCode = resolveBranchCode(config)
       const [report, heading] = await Promise.all([
         getXReport(config.terminal_name),
-        receiptHeading ? Promise.resolve(receiptHeading) : getReceiptHeadingPublic(),
+        receiptHeading ? Promise.resolve(receiptHeading) : getReceiptHeadingPublic(branchCode),
       ])
       if (!receiptHeading) {
         setReceiptHeading(heading)
@@ -672,7 +675,7 @@ export default function MainPosScreen({ navigation }: Props) {
     try {
       const data = await runZReport(config.terminal_name)
       await refreshSeries()
-      const heading = receiptHeading ?? (await getReceiptHeadingPublic())
+      const heading = receiptHeading ?? (await getReceiptHeadingPublic(resolveBranchCode(config)))
       if (!receiptHeading) {
         setReceiptHeading(heading)
       }
@@ -1022,7 +1025,11 @@ export default function MainPosScreen({ navigation }: Props) {
         onConfirm={(amount) => void handleSaveStartingBalance(amount)}
       />
       <CheckoutModal visible={checkoutOpen} onClose={() => setCheckoutOpen(false)} />
-      <AboutModal visible={aboutOpen} onClose={() => setAboutOpen(false)} />
+      <AboutModal
+        visible={aboutOpen}
+        branchCode={resolveBranchCode(config)}
+        onClose={() => setAboutOpen(false)}
+      />
       <TerminalInformationModal
         visible={terminalInfoOpen}
         config={config}

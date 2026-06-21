@@ -13,6 +13,7 @@ import { buildCashCountSheetBody } from './layouts/cashCountLayouts'
 import type { CashCountSheetPrintInput } from '../../types/cashCount'
 import { applyPrintMarginsToText, appendEscPosAutoCut } from './layouts/printLayoutUtils'
 import { getReceiptHeadingPublic } from '../api/posApi'
+import { resolveBranchCode } from '../config/terminalConfig'
 import { reportGlobalConnectionError } from '../../context/NetworkErrorContext'
 export { RECEIPT_WIDTH } from './layouts/printLayoutUtils'
 
@@ -163,7 +164,9 @@ export async function printTestPage(
   heading?: ReceiptHeading | null,
 ) {
   const resolvedHeading =
-    heading === undefined ? await getReceiptHeadingPublic().catch(() => null) : heading
+    heading === undefined
+      ? await getReceiptHeadingPublic(resolveBranchCode(config)).catch(() => null)
+      : heading
   const text = appendEscPosAutoCut(buildTestPrintText({ config, printer }))
   return printReceipt(
     text,

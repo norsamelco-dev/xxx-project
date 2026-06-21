@@ -18,6 +18,7 @@ import {
   type PaymentCategory,
 } from '../../constants/paymentMethods'
 import { checkout, getReceiptHeadingPublic } from '../../services/api/posApi'
+import { resolveBranchCode } from '../../services/config/terminalConfig'
 import { printSalesReceipt } from '../../services/printer/printerService'
 import { colors, spacing } from '../../styles/theme'
 import { mapCheckoutLinesToCartLines, mapCheckoutTotalsToCartTotals } from '../../utils/checkoutReceipt'
@@ -227,7 +228,7 @@ export default function CheckoutModal({ visible, onClose }: Props) {
 
       if (config.default_printer) {
         try {
-          const heading = await getReceiptHeadingPublic()
+          const heading = await getReceiptHeadingPublic(resolveBranchCode(config))
 
           await printSalesReceipt(
             {

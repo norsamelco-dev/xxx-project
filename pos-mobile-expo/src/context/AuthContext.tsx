@@ -6,7 +6,7 @@ import type { SessionUser } from '../types/pos'
 type AuthContextValue = {
   user: SessionUser | null
   isLoading: boolean
-  login: (username: string, password: string, machineName?: string) => Promise<void>
+  login: (username: string, password: string, machineName?: string) => Promise<SessionUser>
   logout: () => Promise<void>
 }
 
@@ -39,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setAuthToken(result.token)
       setUser(result.user)
+      return result.user
     } finally {
       setIsLoading(false)
     }

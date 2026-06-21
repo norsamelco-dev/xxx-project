@@ -3,7 +3,7 @@ import { Image, Modal, Pressable, Text, TextInput, View } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
 import { loadConfig, saveConfig } from '../services/config/configStore'
-import { mergeTerminalIntoConfig } from '../services/config/terminalConfig'
+import { mergeTerminalIntoConfig, resolveBranchCode, formatBranchLabel } from '../services/config/terminalConfig'
 import { getReceiptHeadingPublic, lookupTerminal } from '../services/api/posApi'
 import { usePosSession } from '../context/PosSessionContext'
 import type { RootStackParamList } from '../navigation/types'
@@ -21,11 +21,12 @@ import { colors, spacing } from '../styles/theme'
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>
 
 export default function LoginScreen({ navigation }: Props) {
-  const { login, isLoading } = useAuth()
+  const { login, logout, isLoading } = useAuth()
   const { setConfig, setCurrentOrn } = usePosSession()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [registeredBranchLabel, setRegisteredBranchLabel] = useState('')
   const [logoUri, setLogoUri] = useState<string | null>(null)
   const [showApiModal, setShowApiModal] = useState(false)
   const [apiSettingsError, setApiSettingsError] = useState('')
@@ -44,9 +45,14 @@ export default function LoginScreen({ navigation }: Props) {
   useEffect(() => {
     let isMounted = true
 
-    async function loadLogo() {
+    async function loadBranchBranding() {
       try {
-        const heading = await getReceiptHeadingPublic()
+        const config = await loadConfig()
+        if (isMounted && config) {
+          setRegisteredBranchLabel(formatBranchLabel(config))
+        }
+
+        const heading = await getReceiptHeadingPublic(resolveBranchCode(config))
         const logoPath = heading?.business_logo_path || heading?.developer_logo_path || null
 
         if (!logoPath) {
@@ -64,7 +70,7 @@ export default function LoginScreen({ navigation }: Props) {
       }
     }
 
-    void loadLogo()
+    void loadBranchBranding()
 
     return () => {
       isMounted = false
@@ -197,14 +203,27 @@ export default function LoginScreen({ navigation }: Props) {
 
     try {
       const config = await loadConfig()
-      await login(username, password, config?.terminal_name)
+      const sessionUser = await login(username, password, config?.terminal_name)
+
       if (config) {
-        const terminal = await lookupTerminal(config.terminal_name)
+        const terminal = await lookupTerminal(config.terminal_name, resolveBranchCode(config))
+
+        if (
+          sessionUser.branchId != null &&
+          terminal.branch_id != null &&
+          Number(sessionUser.branchId) !== Number(terminal.branch_id)
+        ) {
+          await logout()
+          setError('This account belongs to a different branch than this terminal.')
+          return
+        }
+
         setCurrentOrn(terminal.current_or)
         const next = mergeTerminalIntoConfig(config, terminal)
         await saveConfig(next)
         setConfig(next)
       }
+
       navigation.replace('MainPos')
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Unable to sign in.')
@@ -240,6 +259,11 @@ export default function LoginScreen({ navigation }: Props) {
         ) : null}
         <Text style={commonStyles.title}>Cashier Sign In</Text>
         <Text style={commonStyles.subtitle}>Use your existing POS credentials.</Text>
+        {registeredBranchLabel ? (
+          <Text style={[commonStyles.subtitle, { marginBottom: spacing.md }]}>
+            Registered branch: {registeredBranchLabel}
+          </Text>
+        ) : null}
         <Text style={commonStyles.label}>Username</Text>
         <TextInput style={commonStyles.input} value={username} onChangeText={setUsername} autoCapitalize="none" placeholderTextColor="#64748b" />
         <Text style={commonStyles.label}>Password</Text>
