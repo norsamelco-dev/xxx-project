@@ -242,7 +242,6 @@ function AdminShell({ title, description, children, actions, hideTopbar = false 
           <div>
             <strong>{user?.fullName || user?.username || 'Signed in user'}</strong>
             <span>{user?.role || 'User'}</span>
-            {user?.branchName ? <span>{user.branchName} ({user.branchCode})</span> : null}
           </div>
           <button
             className="sidebar-settings"
