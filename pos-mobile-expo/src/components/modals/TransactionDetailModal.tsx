@@ -11,7 +11,7 @@ import {
 } from 'react-native'
 import type { SalesItemRow, SalesTransactionRow } from '../../types/sales'
 import { colors, spacing } from '../../styles/theme'
-import { computeCartTotals, formatInteger, formatMoney } from '../../utils/vat'
+import { computeCartTotals, formatInteger, formatMoney, normalizePriceVatMode, normalizeVatRateDecimal } from '../../utils/vat'
 
 type Props = {
   visible: boolean
@@ -92,7 +92,8 @@ export default function TransactionDetailModal({
   }, [visible, transaction?.ORSI])
 
   const discountRate = toNumber(transaction?.discountrate)
-  const vatRate = toNumber(transaction?.sales_vat_rate) || 0.12
+  const vatRate = normalizeVatRateDecimal(transaction?.sales_vat_rate)
+  const priceVatMode = normalizePriceVatMode(transaction?.sales_price_vat_mode)
 
   const previewLines = useMemo(() => {
     if (voidEntire || transactionVoided) {
@@ -116,8 +117,8 @@ export default function TransactionDetailModal({
   }, [activeItems, selectedItemIds, transactionVoided, voidEntire])
 
   const previewTotals = useMemo(
-    () => computeCartTotals(previewLines, discountRate, vatRate),
-    [discountRate, previewLines, vatRate],
+    () => computeCartTotals(previewLines, discountRate, vatRate, priceVatMode),
+    [discountRate, previewLines, vatRate, priceVatMode],
   )
 
   const currentGrand = toNumber(transaction?.sales_grandtotal)

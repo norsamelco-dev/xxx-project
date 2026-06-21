@@ -5,6 +5,8 @@ const {
   isPrintLogoEnabled,
 } = require('../utils/escPosLogo');
 
+const VALID_PRICE_VAT_MODES = new Set(['INCLUSIVE', 'EXCLUSIVE']);
+
 const editableFields = [
   'busi_name',
   'busi_addr',
@@ -12,6 +14,7 @@ const editableFields = [
   'busi_vat_type',
   'busi_tin',
   'vat_rate',
+  'price_vat_mode',
   'developer',
   'accreditation_no',
   'valid_start',
@@ -60,6 +63,21 @@ function normalizeVatRate(value) {
   return parsed;
 }
 
+function normalizePriceVatModeField(value) {
+  if (value === undefined || value === null || value === '') {
+    return 'INCLUSIVE';
+  }
+
+  const normalized = String(value).trim().toUpperCase();
+  if (!VALID_PRICE_VAT_MODES.has(normalized)) {
+    const error = new Error('price_vat_mode must be INCLUSIVE or EXCLUSIVE.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return normalized;
+}
+
 function normalizePrintLogoEnabled(value) {
   if (value === undefined || value === null || value === '') {
     return 1;
@@ -68,13 +86,18 @@ function normalizePrintLogoEnabled(value) {
 }
 
 function normalizePayload(payload) {
+  const busi_vat_type = normalizeText(payload.busi_vat_type);
+  const price_vat_mode =
+    busi_vat_type === 'VAT-EXEMPT TIN' ? 'INCLUSIVE' : normalizePriceVatModeField(payload.price_vat_mode);
+
   return {
     busi_name: normalizeText(payload.busi_name),
     busi_addr: normalizeText(payload.busi_addr),
     busi_owner: normalizeText(payload.busi_owner),
-    busi_vat_type: normalizeText(payload.busi_vat_type),
+    busi_vat_type,
     busi_tin: normalizeText(payload.busi_tin),
     vat_rate: normalizeVatRate(payload.vat_rate),
+    price_vat_mode,
     developer: normalizeText(payload.developer),
     accreditation_no: normalizeText(payload.accreditation_no),
     valid_start: normalizeDate(payload.valid_start),
@@ -91,7 +114,7 @@ function normalizePayload(payload) {
 
 async function getReceiptHeading(branchId) {
   const [rows] = await getPool().query(
-    `SELECT id, busi_name, busi_addr, busi_owner, busi_vat_type, busi_tin, vat_rate,
+    `SELECT id, busi_name, busi_addr, busi_owner, busi_vat_type, busi_tin, vat_rate, price_vat_mode,
             developer, accreditation_no, valid_start, valid_until, softwareversion, contactdetail,
             business_logo_path, developer_logo_path,
             print_logo_width, print_logo_align, print_logo_enabled, branch_id
@@ -122,6 +145,7 @@ async function saveReceiptHeading(branchId, payload) {
            busi_vat_type = ?,
            busi_tin = ?,
            vat_rate = ?,
+           price_vat_mode = ?,
            developer = ?,
            accreditation_no = ?,
            valid_start = ?,
@@ -140,10 +164,10 @@ async function saveReceiptHeading(branchId, payload) {
   } else {
     await getPool().query(
       `INSERT INTO receipt_heading
-       (busi_name, busi_addr, busi_owner, busi_vat_type, busi_tin, vat_rate,
+       (busi_name, busi_addr, busi_owner, busi_vat_type, busi_tin, vat_rate, price_vat_mode,
         developer, accreditation_no, valid_start, valid_until, softwareversion, contactdetail,
         business_logo_path, developer_logo_path, print_logo_width, print_logo_align, print_logo_enabled, branch_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [...editableFields.map((field) => normalized[field]), branchId],
     );
   }

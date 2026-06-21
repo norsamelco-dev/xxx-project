@@ -32,6 +32,7 @@ export type SalesTransactionRow = {
   discount_amount: number | string | null
   sales_vatable_amount: number | string | null
   sales_vat_rate: number | string | null
+  sales_price_vat_mode?: string | null
   sales_total_amt: number | string | null
   sales_grandtotal: number | string | null
   amt_tendered: number | string | null

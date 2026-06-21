@@ -1,26 +1,82 @@
 import type { CartLine, CartTotals } from '../types/cart'
 
-const DEFAULT_VAT_RATE = 0.12
+export type PriceVatMode = 'INCLUSIVE' | 'EXCLUSIVE'
 
-export function computeCartTotals(lines: CartLine[], discountRate: number, vatRate = DEFAULT_VAT_RATE): CartTotals {
+const DEFAULT_VAT_RATE = 0.12
+const DEFAULT_PRICE_VAT_MODE: PriceVatMode = 'INCLUSIVE'
+
+export function normalizeVatRateDecimal(value: number | string | null | undefined): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_VAT_RATE
+  }
+  if (parsed > 1) {
+    return parsed / 100
+  }
+  return parsed
+}
+
+export function normalizePriceVatMode(
+  value: string | null | undefined,
+  fallback: PriceVatMode = DEFAULT_PRICE_VAT_MODE,
+): PriceVatMode {
+  const normalized = String(value || fallback).trim().toUpperCase()
+  return normalized === 'EXCLUSIVE' ? 'EXCLUSIVE' : 'INCLUSIVE'
+}
+
+export function formatPriceVatModeLabel(mode: PriceVatMode | undefined): string {
+  return normalizePriceVatMode(mode) === 'EXCLUSIVE' ? '(VAT Exclusive)' : '(VAT Inclusive)'
+}
+
+export function resolveVatRateFromHeading(
+  vatRate: number | string | null | undefined,
+  busiVatType?: string | null,
+): number {
+  if (String(busiVatType || '').trim().toUpperCase() === 'VAT-EXEMPT TIN') {
+    return 0
+  }
+  return normalizeVatRateDecimal(vatRate)
+}
+
+export function computeCartTotals(
+  lines: CartLine[],
+  discountRate: number,
+  vatRate = DEFAULT_VAT_RATE,
+  priceVatMode: PriceVatMode = DEFAULT_PRICE_VAT_MODE,
+): CartTotals {
   const grossSales = roundMoney(lines.reduce((sum, line) => sum + line.total, 0))
   const normalizedDiscountRate = Math.max(0, discountRate)
   const discountAmount = roundMoney(grossSales * normalizedDiscountRate)
   const taxableGross = roundMoney(grossSales - discountAmount)
-  const vatAmount = roundMoney(taxableGross * (vatRate / (1 + vatRate)))
-  const netSales = roundMoney(taxableGross - vatAmount)
-  const grandTotal = taxableGross
-  const itemQtyTotal = lines.reduce((sum, line) => sum + line.qty, 0)
+  const normalizedRate = normalizeVatRateDecimal(vatRate)
+  const mode = normalizePriceVatMode(priceVatMode)
+
+  let vatAmount = 0
+  let netSales = taxableGross
+  let grandTotal = taxableGross
+
+  if (normalizedRate > 0) {
+    if (mode === 'EXCLUSIVE') {
+      vatAmount = roundMoney(taxableGross * normalizedRate)
+      netSales = taxableGross
+      grandTotal = roundMoney(taxableGross + vatAmount)
+    } else {
+      vatAmount = roundMoney(taxableGross * (normalizedRate / (1 + normalizedRate)))
+      netSales = roundMoney(taxableGross - vatAmount)
+      grandTotal = taxableGross
+    }
+  }
 
   return {
     grossSales,
     discountRate: normalizedDiscountRate,
     discountAmount,
-    vatRate,
+    vatRate: normalizedRate,
+    priceVatMode: mode,
     vatAmount,
     netSales,
     grandTotal,
-    itemQtyTotal,
+    itemQtyTotal: lines.reduce((sum, line) => sum + line.qty, 0),
   }
 }
 

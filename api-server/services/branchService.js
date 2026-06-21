@@ -170,8 +170,8 @@ async function createBranch(payload) {
     );
     if (!existingHeading.length) {
       await getPool().query(
-        `INSERT INTO receipt_heading (branch_id, busi_name, busi_addr, vat_rate)
-         VALUES (?, ?, ?, 12)`,
+        `INSERT INTO receipt_heading (branch_id, busi_name, busi_addr, vat_rate, price_vat_mode)
+         VALUES (?, ?, ?, 12, 'INCLUSIVE')`,
         [branchId, branch_name, address],
       );
     }

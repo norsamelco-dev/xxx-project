@@ -1,8 +1,12 @@
 const { getPool } = require('../db');
-const { getReceiptHeading } = require('./receiptHeadingService');
 const { assertTransactionAccess, listSalesItemsByTransaction } = require('./salesService');
-
-const DEFAULT_VAT_RATE = 0.12;
+const {
+  DEFAULT_VAT_RATE,
+  roundMoney,
+  computeSaleTotals,
+  getBranchVatSettings,
+  normalizePriceVatMode,
+} = require('../utils/vatTotals');
 const INSUFFICIENT_STOCK_MESSAGE =
   'Insufficient stock. Maximum available qty for this product has been reached.';
 
@@ -24,10 +28,6 @@ function normalizeText(value) {
   return text.length ? text : null;
 }
 
-function roundMoney(value) {
-  return Math.round(Number(value) * 100) / 100;
-}
-
 function todayDateString() {
   const now = new Date();
   const year = now.getFullYear();
@@ -38,38 +38,6 @@ function todayDateString() {
 
 function todayCompactDate() {
   return todayDateString().replace(/-/g, '');
-}
-
-async function getVatRate(branchId) {
-  try {
-    const heading = await getReceiptHeading(branchId);
-    const rate = Number(heading?.vat_rate);
-    return Number.isFinite(rate) && rate > 0 ? rate : DEFAULT_VAT_RATE;
-  } catch {
-    return DEFAULT_VAT_RATE;
-  }
-}
-
-function computeSaleTotals(lineTotals, discountRate, vatRate) {
-  const grossSales = roundMoney(lineTotals.reduce((sum, value) => sum + Number(value || 0), 0));
-  const normalizedDiscountRate = Math.max(0, Number(discountRate) || 0);
-  const discountAmount = roundMoney(grossSales * normalizedDiscountRate);
-  const taxableGross = roundMoney(grossSales - discountAmount);
-  const vatAmount = roundMoney(taxableGross * (vatRate / (1 + vatRate)));
-  const netSales = roundMoney(taxableGross - vatAmount);
-  const grandTotal = taxableGross;
-  const totalQty = lineTotals.length;
-
-  return {
-    grossSales,
-    discountRate: normalizedDiscountRate,
-    discountAmount,
-    vatRate,
-    vatAmount,
-    netSales,
-    grandTotal,
-    totalQty,
-  };
 }
 
 async function lookupTerminal(machineName, branchCode) {
@@ -1028,7 +996,7 @@ async function checkout(payload, user) {
       throw error;
     }
 
-    const vatRate = await getVatRate(branchId);
+    const vatSettings = await getBranchVatSettings(branchId);
     const resolvedLines = [];
 
     for (const line of cartLines) {
@@ -1064,11 +1032,13 @@ async function checkout(payload, user) {
       });
     }
 
-    const totals = computeSaleTotals(
-      resolvedLines.map((line) => line.total),
+    const totals = computeSaleTotals({
+      lineTotals: resolvedLines.map((line) => line.total),
       discountRate,
-      vatRate,
-    );
+      vatRate: vatSettings.vatRate,
+      priceVatMode: vatSettings.priceVatMode,
+      heading: vatSettings.heading,
+    });
 
     const totalItemSold = resolvedLines.reduce((sum, line) => sum + line.qty, 0);
     const amtChange = paymentMethod.toUpperCase().includes('CASH')
@@ -1078,7 +1048,7 @@ async function checkout(payload, user) {
     await connection.query(
       `INSERT INTO sales_a
         (Created_at, sales_series_no, MachineName, PTU, ORSI, sales_amt, discountrate, discount_amount,
-         sales_vatable_amount, sales_vat_rate, sales_total_amt, sales_grandtotal, amt_tendered, amt_change,
+         sales_vatable_amount, sales_vat_rate, sales_price_vat_mode, sales_total_amt, sales_grandtotal, amt_tendered, amt_change,
          payment_method, payment_ref_no, total_item_sold, userid, username, VOIDED, VOID_REASON, branch_id)
        VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'N', 'N/A', ?)`,
       [
@@ -1091,6 +1061,7 @@ async function checkout(payload, user) {
         totals.discountAmount,
         totals.vatAmount,
         totals.vatRate,
+        totals.priceVatMode,
         totals.netSales,
         totals.grandTotal,
         amtTendered,
@@ -1164,6 +1135,7 @@ async function checkout(payload, user) {
         discountRate: totals.discountRate,
         discountAmount: totals.discountAmount,
         vatRate: totals.vatRate,
+        priceVatMode: totals.priceVatMode,
         vatAmount: totals.vatAmount,
         netSales: totals.netSales,
         grandTotal: totals.grandTotal,
@@ -1208,7 +1180,7 @@ async function buildReportPayload(machineName, reportType, user) {
   }
 
   const branchId = branchIdFromUser(user);
-  const vatRate = await getVatRate(branchId);
+  const vatSettings = await getBranchVatSettings(branchId);
 
   const [seriesRows] = await getPool().query(
     `SELECT COALESCE(SUM(COALESCE(ss.starting_balance, 0)), 0) AS starting_balance
@@ -1298,7 +1270,7 @@ async function buildReportPayload(machineName, reportType, user) {
     net_sales: roundMoney(summary.net_sales_vat_excl),
     vat_amount: roundMoney(summary.vat_amount),
     total_sales: totalSales,
-    vat_rate: vatRate,
+    vat_rate: vatSettings.vatRate,
     qty_sold: Number(summary.qty_sold) || 0,
     transaction_count: transactionCount,
     completed_count: transactionCount,
@@ -1756,8 +1728,20 @@ async function fetchTransactionRowByOrsi(orsi) {
 async function recomputeSalesAFromLines(connection, salesA, activeLines) {
   const lineTotals = activeLines.map((line) => Number(line.TOTAL) || 0);
   const discountRate = Number(salesA.discountrate) || 0;
-  const vatRate = Number(salesA.sales_vat_rate) || (await getVatRate(Number(salesA.branch_id) || undefined));
-  const totals = computeSaleTotals(lineTotals, discountRate, vatRate);
+  const branchId = Number(salesA.branch_id) || undefined;
+  const vatSettings = branchId ? await getBranchVatSettings(branchId) : { heading: null };
+  const vatRate = Number(salesA.sales_vat_rate) || vatSettings.vatRate || DEFAULT_VAT_RATE;
+  const priceVatMode = normalizePriceVatMode(
+    salesA.sales_price_vat_mode,
+    vatSettings.priceVatMode,
+  );
+  const totals = computeSaleTotals({
+    lineTotals,
+    discountRate,
+    vatRate,
+    priceVatMode,
+    heading: vatSettings.heading,
+  });
   const totalItemSold = activeLines.reduce((sum, line) => sum + (Number(line.QTY) || 0), 0);
   const paymentMethod = String(salesA.payment_method || '');
   const amtTendered = Number(salesA.amt_tendered) || 0;
@@ -1975,6 +1959,7 @@ async function getPosTransactionReceipt(orsi, accessContext) {
         discountRate: Number(header.discountrate) || 0,
         discountAmount: roundMoney(Number(header.discount_amount) || 0),
         vatRate: Number(header.sales_vat_rate) || DEFAULT_VAT_RATE,
+        priceVatMode: normalizePriceVatMode(header.sales_price_vat_mode),
         vatAmount: roundMoney(Number(header.sales_vatable_amount) || 0),
         netSales: roundMoney(Number(header.sales_total_amt) || 0),
         grandTotal: roundMoney(Number(header.sales_grandtotal) || 0),

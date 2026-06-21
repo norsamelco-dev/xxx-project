@@ -27,6 +27,7 @@ export type ReceiptHeadingPublic = {
   busi_vat_type: string | null
   busi_tin: string | null
   vat_rate: number | string | null
+  price_vat_mode?: string | null
   developer: string | null
   accreditation_no: string | null
   softwareversion: string | null

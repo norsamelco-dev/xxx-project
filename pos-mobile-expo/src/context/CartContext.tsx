@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { CartLine, CartTotals } from '../types/cart'
+import type { PriceVatMode } from '../utils/vat'
 import { computeCartTotals } from '../utils/vat'
 import { useAuth } from './AuthContext'
 import { addToCartFifo, clearCart, getCartLines, removeCartLine, upsertCartLine } from '../services/api/posApi'
@@ -135,13 +136,24 @@ function applyFifoLinesToCart(
   return mergeCartLines(next)
 }
 
-export function CartProvider({ children, vatRate = 0.12 }: { children: ReactNode; vatRate?: number }) {
+export function CartProvider({
+  children,
+  vatRate = 0.12,
+  priceVatMode = 'INCLUSIVE',
+}: {
+  children: ReactNode
+  vatRate?: number
+  priceVatMode?: PriceVatMode
+}) {
   const { user } = useAuth()
   const [lines, setLines] = useState<CartLine[]>([])
   const [pendingQty, setPendingQty] = useState(1)
   const [discountRate, setDiscountRate] = useState(0)
 
-  const totals = useMemo(() => computeCartTotals(lines, discountRate, vatRate), [lines, discountRate, vatRate])
+  const totals = useMemo(
+    () => computeCartTotals(lines, discountRate, vatRate, priceVatMode),
+    [lines, discountRate, vatRate, priceVatMode],
+  )
 
   useEffect(() => {
     if (!user) {

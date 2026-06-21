@@ -1,12 +1,24 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { PosConfig } from '../types/config'
 import type { PosSummary, SeriesCloseRequirements } from '../types/pos'
-import { closeSeries, createSeries, getSeriesCloseRequirements, getSummary, listActiveSeries } from '../services/api/posApi'
+import type { PriceVatMode } from '../utils/vat'
+import {
+  closeSeries,
+  createSeries,
+  getReceiptHeadingPublic,
+  getSeriesCloseRequirements,
+  getSummary,
+  listActiveSeries,
+} from '../services/api/posApi'
+import { resolveBranchCode } from '../services/config/terminalConfig'
+import { normalizePriceVatMode, resolveVatRateFromHeading } from '../utils/vat'
 import { formatOrn } from '../utils/orsi'
 
 type PosSessionContextValue = {
   config: PosConfig | null
   setConfig: (config: PosConfig | null) => void
+  vatRate: number
+  priceVatMode: PriceVatMode
   activeSeriesNo: string | null
   seriesOptions: string[]
   hasActiveSeries: boolean
@@ -35,11 +47,40 @@ const EMPTY_SUMMARY: PosSummary = {
 
 export function PosSessionProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<PosConfig | null>(null)
+  const [vatRate, setVatRate] = useState(0.12)
+  const [priceVatMode, setPriceVatMode] = useState<PriceVatMode>('INCLUSIVE')
   const [activeSeriesNo, setActiveSeriesNo] = useState<string | null>(null)
   const [seriesOptions, setSeriesOptions] = useState<string[]>([])
   const [currentOrn, setCurrentOrn] = useState(1)
   const [summary, setSummary] = useState<PosSummary | null>(null)
   const [isBusy, setIsBusy] = useState(false)
+
+  useEffect(() => {
+    let isMounted = true
+    const branchCode = resolveBranchCode(config)
+
+    void getReceiptHeadingPublic(branchCode)
+      .then((heading) => {
+        if (!isMounted) {
+          return
+        }
+
+        setVatRate(resolveVatRateFromHeading(heading?.vat_rate, heading?.busi_vat_type))
+        setPriceVatMode(normalizePriceVatMode(heading?.price_vat_mode))
+      })
+      .catch(() => {
+        if (!isMounted) {
+          return
+        }
+
+        setVatRate(0.12)
+        setPriceVatMode('INCLUSIVE')
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [config?.branch_code])
 
   const currentOrnDisplay = useMemo(() => formatOrn(currentOrn), [currentOrn])
 
@@ -150,6 +191,8 @@ export function PosSessionProvider({ children }: { children: ReactNode }) {
     () => ({
       config,
       setConfig,
+      vatRate,
+      priceVatMode,
       activeSeriesNo,
       seriesOptions,
       hasActiveSeries,
@@ -167,6 +210,8 @@ export function PosSessionProvider({ children }: { children: ReactNode }) {
     }),
     [
       config,
+      vatRate,
+      priceVatMode,
       activeSeriesNo,
       seriesOptions,
       hasActiveSeries,

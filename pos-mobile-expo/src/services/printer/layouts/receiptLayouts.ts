@@ -20,6 +20,7 @@ import {
   pushWrappedText,
   wrapText,
 } from './printLayoutUtils'
+import { formatPriceVatModeLabel } from '../../../utils/vat'
 
 const ITEM_COL_WIDTHS = [7, 4, 15, 7, 9]
 const ITEM_MAIN_COL_WIDTHS = [7, 4, 29]
@@ -134,7 +135,7 @@ function buildStandard80mmReceipt(options: ReceiptLayoutInput) {
   pushMoneyLines(rows, `${formatVatLabel(vatRate)}:`, totals.vatAmount, width)
   pushMoneyLines(rows, `${formatDiscLabel(totals.discountRate)}:`, totals.discountAmount, width)
   pushMoneyLines(rows, 'NET TOTAL:', totals.netSales, width)
-  pushMoneyLines(rows, 'GRAND TOTAL :', totals.grandTotal, width)
+  pushMoneyLines(rows, `GRAND TOTAL ${formatPriceVatModeLabel(totals.priceVatMode)}:`, totals.grandTotal, width)
   rows.push('')
 
   pushMoneyLines(rows, 'AMT TENDERED:', checkout.amt_tendered, width)

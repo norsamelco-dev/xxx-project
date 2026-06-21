@@ -1134,7 +1134,7 @@ function SalesReportPage() {
               <span className="summary-label">Total Sales</span>
               <strong>{toMoney(summary.totalSales)}</strong>
             </div>
-            <p>Computed from non-voided sales_b totals (only rows where sales_a.VOIDED and sales_b.VOIDED are not Y).</p>
+            <p>Computed from non-voided sales_a transaction headers (grand total).</p>
           </article>
 
           <article className="summary-card">
@@ -1142,7 +1142,7 @@ function SalesReportPage() {
               <span className="summary-label">VAT</span>
               <strong>{toMoney(summary.vat)}</strong>
             </div>
-            <p>Computed from non-voided sales_b using the transaction VAT rate, excluding rows marked VOIDED in sales_a or sales_b.</p>
+            <p>Sum of VAT amounts stored on non-voided sales_a transaction headers.</p>
           </article>
 
           <article className="summary-card">
@@ -1150,7 +1150,7 @@ function SalesReportPage() {
               <span className="summary-label">Grand Total</span>
               <strong>{toMoney(summary.grandTotal)}</strong>
             </div>
-            <p>Computed from non-voided sales_b grand totals after applying the sales_a and sales_b VOIDED filters.</p>
+            <p>Sum of grand totals stored on non-voided sales_a transaction headers.</p>
           </article>
         </div>
       </section>

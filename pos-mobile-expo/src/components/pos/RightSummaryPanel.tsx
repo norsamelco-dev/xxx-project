@@ -5,7 +5,7 @@ import { isCheckoutShortcut, isCustomQtyShortcut } from '../../hooks/useDesktopK
 import type { CartTotals } from '../../types/cart'
 import type { PosSummary } from '../../types/pos'
 import { colors, fonts, spacing } from '../../styles/theme'
-import { formatInteger, formatMoney, formatPercent } from '../../utils/vat'
+import { formatInteger, formatMoney, formatPercent, formatPriceVatModeLabel, normalizeVatRateDecimal } from '../../utils/vat'
 
 const BARCODE_INPUT_REFOCUS_MS = 1000
 
@@ -160,13 +160,16 @@ export default function RightSummaryPanel({
           <SummaryMoneyRow label="Gross Sales" value={formatMoney(totals.grossSales)} />
           <SummaryMoneyRow label="Discount" value={formatMoney(totals.discountAmount)} />
           <SummaryMoneyRow label="Disc. Rate %" value={formatPercent(totals.discountRate * 100)} />
-          <SummaryMoneyRow label="VAT (12.00%)" value={formatMoney(totals.vatAmount)} />
+          <SummaryMoneyRow
+            label={`VAT (${formatPercent(normalizeVatRateDecimal(totals.vatRate) * 100)})`}
+            value={formatMoney(totals.vatAmount)}
+          />
           <SummaryMoneyRow label="Net Total" value={formatMoney(totals.netSales)} />
         </View>
 
         <View style={styles.divider} />
 
-        <GrandTotalRow value={formatMoney(totals.grandTotal)} />
+        <GrandTotalRow value={formatMoney(totals.grandTotal)} priceVatMode={totals.priceVatMode} />
         <SummaryQtyRow label="Item Qty Total" value={String(totals.itemQtyTotal)} />
 
         <View style={styles.shortcutRow}>
@@ -216,12 +219,12 @@ function SummaryMoneyRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function GrandTotalRow({ value }: { value: string }) {
+function GrandTotalRow({ value, priceVatMode }: { value: string; priceVatMode?: 'INCLUSIVE' | 'EXCLUSIVE' }) {
   return (
     <View style={styles.grandTotalRow}>
       <View style={styles.grandTotalLabelBlock}>
         <Text style={styles.summaryLabel}>TOTAL SALES</Text>
-        <Text style={styles.grandTotalSublabel}>(VAT Inclusive)</Text>
+        <Text style={styles.grandTotalSublabel}>{formatPriceVatModeLabel(priceVatMode)}</Text>
       </View>
       <Text style={styles.grandTotalValue} numberOfLines={1}>
         {value}

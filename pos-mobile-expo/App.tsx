@@ -12,7 +12,7 @@ import {
 } from '@expo-google-fonts/inter'
 import RootNavigator from './src/navigation/RootNavigator'
 import { AuthProvider } from './src/context/AuthContext'
-import { PosSessionProvider } from './src/context/PosSessionContext'
+import { PosSessionProvider, usePosSession } from './src/context/PosSessionContext'
 import { CartProvider } from './src/context/CartContext'
 import { ToastProvider } from './src/context/ToastContext'
 import { NetworkErrorProvider } from './src/context/NetworkErrorContext'
@@ -41,6 +41,16 @@ function applyDefaultFontFamily() {
   }
 
   defaultsApplied = true
+}
+
+function PosAppShell() {
+  const { vatRate, priceVatMode } = usePosSession()
+
+  return (
+    <CartProvider vatRate={vatRate} priceVatMode={priceVatMode}>
+      <RootNavigator />
+    </CartProvider>
+  )
 }
 
 export default function App() {
@@ -103,9 +113,7 @@ export default function App() {
         <AuthProvider>
           <PosSessionProvider>
             <ToastProvider>
-              <CartProvider>
-                <RootNavigator />
-              </CartProvider>
+              <PosAppShell />
             </ToastProvider>
           </PosSessionProvider>
         </AuthProvider>

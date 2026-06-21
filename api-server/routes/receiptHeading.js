@@ -76,6 +76,7 @@ function toPublicReceiptHeading(data) {
     busi_vat_type: data.busi_vat_type,
     busi_tin: data.busi_tin,
     vat_rate: data.vat_rate,
+    price_vat_mode: data.price_vat_mode,
     developer: data.developer,
     accreditation_no: data.accreditation_no,
     valid_start: data.valid_start,

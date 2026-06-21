@@ -117,6 +117,7 @@ export type CheckoutResult = {
     discountRate: number
     discountAmount: number
     vatRate: number
+    priceVatMode?: 'INCLUSIVE' | 'EXCLUSIVE'
     vatAmount: number
     netSales: number
     grandTotal: number
@@ -136,6 +137,7 @@ export type ReceiptHeading = {
   busi_vat_type: string | null
   busi_tin: string | null
   vat_rate: number | string | null
+  price_vat_mode?: string | null
   valid_start: string | null
   valid_until: string | null
   developer: string | null

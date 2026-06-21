@@ -26,6 +26,7 @@ const requestLogger = require('./middleware/requestLogger');
 const { getPool, listTables, ensureKnownTable } = require('./db');
 const { ensureCheckoutSchema, verifyCheckoutSchema } = require('./db/ensureCartSchema');
 const { ensureReceiptHeadingPrintLogoColumns } = require('./db/ensureReceiptHeadingPrintLogo');
+const { ensureReceiptHeadingVatModeColumns } = require('./db/ensureReceiptHeadingVatMode');
 
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 
@@ -224,6 +225,10 @@ app.listen(port, host, () => {
 
   void ensureReceiptHeadingPrintLogoColumns().catch((error) => {
     console.error('[receipt-heading] Failed to ensure print logo columns:', error.message);
+  });
+
+  void ensureReceiptHeadingVatModeColumns().catch((error) => {
+    console.error('[receipt-heading] Failed to ensure price VAT mode columns:', error.message);
   });
 
   void ensureBranchSchema().catch((error) => {

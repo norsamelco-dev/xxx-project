@@ -5,7 +5,7 @@ import type { ReceiptLayoutInput } from './layouts/receiptLayouts'
 import type { ReportKind, ReportLayoutInput } from './layouts/reportLayouts'
 import type { TestPrintLayoutInput } from './layouts/testPrintLayouts'
 import type { PrinterDevice } from './printerService'
-import { computeCartTotals } from '../../utils/vat'
+import { computeCartTotals, normalizePriceVatMode, resolveVatRateFromHeading } from '../../utils/vat'
 
 export function getSampleTestPrintLayoutInput(config: PosConfig): TestPrintLayoutInput {
   const printer: PrinterDevice = {
@@ -56,13 +56,9 @@ export function getReceiptLayoutPreviewInput({
   discountRate = 0,
 }: ReceiptPreviewContext): ReceiptLayoutInput {
   const lines = cartLines?.length ? cartLines : PREVIEW_DEMO_LINES
-  const vatRate =
-    typeof heading?.vat_rate === 'number'
-      ? heading.vat_rate > 1
-        ? heading.vat_rate / 100
-        : heading.vat_rate
-      : 0.12
-  const totals = cartTotals ?? computeCartTotals(lines, discountRate, vatRate)
+  const vatRate = resolveVatRateFromHeading(heading?.vat_rate, heading?.busi_vat_type)
+  const priceVatMode = normalizePriceVatMode(heading?.price_vat_mode)
+  const totals = cartTotals ?? computeCartTotals(lines, discountRate, vatRate, priceVatMode)
 
   const checkout = {
     orsi: Number.parseInt(orsiDisplay, 10) || 0,
@@ -74,6 +70,7 @@ export function getReceiptLayoutPreviewInput({
       discountRate: totals.discountRate,
       discountAmount: totals.discountAmount,
       vatRate: totals.vatRate,
+      priceVatMode: totals.priceVatMode,
       vatAmount: totals.vatAmount,
       netSales: totals.netSales,
       grandTotal: totals.grandTotal,

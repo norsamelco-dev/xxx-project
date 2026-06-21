@@ -17,6 +17,7 @@ export type CartTotals = {
   discountRate: number
   discountAmount: number
   vatRate: number
+  priceVatMode?: 'INCLUSIVE' | 'EXCLUSIVE'
   vatAmount: number
   netSales: number
   grandTotal: number

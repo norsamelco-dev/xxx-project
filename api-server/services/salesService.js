@@ -58,31 +58,11 @@ function buildSeriesAggregateJoins() {
      ) sa_agg ON sa_agg.sales_series_no = ss.full_series_no
      LEFT JOIN (
        SELECT sa.sales_series_no,
-              COALESCE(
-                SUM(
-                  CASE
-                    WHEN COALESCE(sa.sales_vat_rate, 0) > 0
-                      THEN COALESCE(sb.TOTAL, 0) / (1 + COALESCE(sa.sales_vat_rate, 0))
-                    ELSE COALESCE(sb.TOTAL, 0)
-                  END
-                ),
-                0
-              ) AS totalsales,
-              COALESCE(
-                SUM(
-                  CASE
-                    WHEN COALESCE(sa.sales_vat_rate, 0) > 0
-                      THEN COALESCE(sb.TOTAL, 0) - (COALESCE(sb.TOTAL, 0) / (1 + COALESCE(sa.sales_vat_rate, 0)))
-                    ELSE 0
-                  END
-                ),
-                0
-              ) AS vat_amount,
-              COALESCE(SUM(COALESCE(sb.TOTAL, 0)), 0) AS grand_total
+              COALESCE(SUM(COALESCE(sa.sales_total_amt, 0)), 0) AS totalsales,
+              COALESCE(SUM(COALESCE(sa.sales_vatable_amount, 0)), 0) AS vat_amount,
+              COALESCE(SUM(COALESCE(sa.sales_grandtotal, 0)), 0) AS grand_total
        FROM sales_a sa
-       INNER JOIN sales_b sb ON sb.ORSI = sa.ORSI AND sb.branch_id = sa.branch_id
        WHERE UPPER(TRIM(COALESCE(sa.VOIDED, 'N'))) <> 'Y'
-         AND UPPER(TRIM(COALESCE(sb.VOIDED, 'N'))) <> 'Y'
          AND sa.branch_id = ?
        GROUP BY sa.sales_series_no
      ) sb_agg ON sb_agg.sales_series_no = ss.full_series_no`;
@@ -193,6 +173,7 @@ async function listSalesTransactionsBySeries(seriesNo, branchId) {
             sa.discount_amount,
             sa.sales_vatable_amount,
             sa.sales_vat_rate,
+            sa.sales_price_vat_mode,
             sa.sales_total_amt,
             sa.sales_grandtotal,
             sa.amt_tendered,
@@ -221,6 +202,7 @@ async function listSalesTransactionsBySeries(seriesNo, branchId) {
               sa.discount_amount,
               sa.sales_vatable_amount,
               sa.sales_vat_rate,
+              sa.sales_price_vat_mode,
               sa.sales_total_amt,
               sa.sales_grandtotal,
               sa.amt_tendered,
