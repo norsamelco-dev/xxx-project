@@ -84,7 +84,7 @@ function buildStandard80mmReadingReport(input: ReportLayoutInput) {
   rows.push(centerText(title, width))
   rows.push(divider(width))
 
-  pushLabelValueLines(rows, 'CASHIER 2: ', cashierLabel, width)
+  pushLabelValueLines(rows, 'CASHIER: ', cashierLabel, width)
   pushLabelValueLines(rows, 'DATE: ', formatReceiptDate(reportDate), width)
   pushLabelValueLines(rows, 'POS TERMINAL #: ', config.terminal_name || report.machine_name, width)
   rows.push(divider(width))
