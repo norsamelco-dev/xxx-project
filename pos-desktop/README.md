@@ -13,7 +13,7 @@ Primary POS deployment for Windows registers. This package wraps the existing [`
 
 - Windows 10/11
 - Node.js 20+
-- MySQL-backed API server configured (see [`server`](../server))
+- MySQL-backed API server configured (see [`api-server`](../api-server))
 
 ## Development
 
@@ -66,12 +66,14 @@ Installer output: `pos-desktop/release/`
 3. On each register PC, run the **local API** for Windows printers (separate terminal or Windows service):
 
 ```powershell
-cd server
+cd api-server
 npm install
 npm run start
 ```
 
-Set `PORT=5000` in `server/.env`.
+Set `PORT=5000` in `api-server/.env`.
+
+**Note:** The packaged app serves the Expo web bundle over `http://127.0.0.1` (Expo uses absolute `/_expo/...` paths that do not work with `file://`).
 
 ## Keyboard shortcuts (desktop)
 

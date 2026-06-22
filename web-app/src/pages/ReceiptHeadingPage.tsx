@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type KeyboardEvent, type RefObject } from 'react'
 import { ThemedButton } from '../components/ThemedButton'
 import AdminShell from '../components/AdminShell'
-import { ButtonLabel } from '../components/ButtonIcon'
+import { ButtonLabel, ButtonIcon } from '../components/ButtonIcon'
 import { usePageVisitAudit } from '../hooks/usePageVisitAudit'
 import { apiFetch } from '../lib/api'
 import { AUDIT_PAGES, buildAuditDescription } from '../lib/audit'
 
 const vatTypeOptions = ['VAT REG TIN', 'VAT-EXEMPT TIN'] as const
+const priceVatModeOptions = [
+  { value: 'INCLUSIVE', label: 'VAT Inclusive' },
+  { value: 'EXCLUSIVE', label: 'VAT Exclusive' },
+] as const
 const allowedLogoMimeTypes = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp'])
 const maxLogoBytes = 2 * 1024 * 1024
 
@@ -20,6 +24,7 @@ type ReceiptHeading = {
   busi_vat_type: string
   busi_tin: string
   vat_rate: string
+  price_vat_mode: string
   developer: string
   accreditation_no: string
   valid_start: string
@@ -41,6 +46,7 @@ const initialForm: ReceiptHeading = {
   busi_vat_type: '',
   busi_tin: '',
   vat_rate: '',
+  price_vat_mode: 'INCLUSIVE',
   developer: '',
   accreditation_no: '',
   valid_start: '',
@@ -92,6 +98,7 @@ function mapResponseToForm(data: Record<string, unknown> | null): ReceiptHeading
     busi_vat_type: String(data.busi_vat_type || ''),
     busi_tin: String(data.busi_tin || ''),
     vat_rate: data.vat_rate === null || data.vat_rate === undefined ? '' : String(data.vat_rate),
+    price_vat_mode: String(data.price_vat_mode || 'INCLUSIVE').toUpperCase() === 'EXCLUSIVE' ? 'EXCLUSIVE' : 'INCLUSIVE',
     developer: String(data.developer || ''),
     accreditation_no: String(data.accreditation_no || ''),
     valid_start: toInputDate(data.valid_start),
@@ -123,6 +130,7 @@ function ReceiptHeadingPage() {
   const [lastVatRegRate, setLastVatRegRate] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isPrintLogoModalOpen, setIsPrintLogoModalOpen] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const businessLogoInputRef = useRef<HTMLInputElement | null>(null)
@@ -315,6 +323,7 @@ function ReceiptHeadingPage() {
       payload.append('busi_vat_type', form.busi_vat_type)
       payload.append('busi_tin', form.busi_tin)
       payload.append('vat_rate', form.vat_rate.trim() === '' ? '' : String(Number(form.vat_rate)))
+      payload.append('price_vat_mode', form.busi_vat_type === 'VAT-EXEMPT TIN' ? 'INCLUSIVE' : form.price_vat_mode)
       payload.append('developer', form.developer)
       payload.append('accreditation_no', form.accreditation_no)
       payload.append('valid_start', form.valid_start)
@@ -372,25 +381,23 @@ function ReceiptHeadingPage() {
         {error ? <div className="error-state">{error}</div> : null}
         {success ? <div className="success-state">{success}</div> : null}
 
-        <div className="settings-grid">
-          <article className="panel settings-card">
+        <div className="settings-grid settings-grid--receipt-profile">
+          <article className="panel settings-panel">
             <div className="audit-card-header">
-              <div>
+              <div className="audit-card-header__intro">
                 <p className="admin-breadcrumb">Dashboard / Business Profile Settings</p>
                 <h1 className="audit-card-title">Business Profile Settings</h1>
                 <p className="audit-card-description">Manage business and developer details used in printed receipts.</p>
               </div>
-
-            </div>
-
-            <div className="panel-header">
-              <div>
-                <h2 className="card-title-with-icon">
-                  <span className="card-icon card-icon--business" aria-hidden="true" />
-                  Business Information
-                </h2>
-                <p>Shown on customer receipts as registered business details.</p>
-              </div>
+              <button
+                type="button"
+                className="receipt-print-settings-trigger"
+                aria-label="Print logo on receipts settings"
+                title="Print logo on receipts"
+                onClick={() => setIsPrintLogoModalOpen(true)}
+              >
+                <ButtonIcon name="printer" />
+              </button>
             </div>
 
             <div className="settings-form-grid">
@@ -436,72 +443,6 @@ function ReceiptHeadingPage() {
                     <p className="field-hint">Accepted: png, jpg, jpeg, webp. Max size: 2 MB.</p>
                   </div>
                 </div>
-                <div className="receipt-logo-print-settings">
-                  <h3 className="receipt-logo-print-settings__title">Print logo on receipts</h3>
-                  <p className="field-hint">
-                    Applies to sales receipts, test prints, and X/Z reports on all POS terminals.
-                  </p>
-                  <label className="receipt-logo-print-settings__toggle">
-                    <input
-                      type="checkbox"
-                      checked={form.print_logo_enabled}
-                      onChange={(event) =>
-                        setForm((current) => ({ ...current, print_logo_enabled: event.target.checked }))
-                      }
-                    />
-                    <span>Enable logo on print</span>
-                  </label>
-                  <div className="settings-form-grid receipt-logo-print-settings__grid">
-                    <div className="field">
-                      <label htmlFor="print_logo_width">Width on 80mm paper (dots)</label>
-                      <input
-                        id="print_logo_width"
-                        name="print_logo_width"
-                        type="number"
-                        min={80}
-                        max={384}
-                        step={8}
-                        value={form.print_logo_width}
-                        disabled={!form.print_logo_enabled}
-                        onChange={handleChange}
-                      />
-                    </div>
-                    <div className="field field--full">
-                      <span className="field-label">Position</span>
-                      <div className="receipt-logo-align-options" role="radiogroup" aria-label="Logo position">
-                        {(['left', 'center', 'right'] as PrintLogoAlign[]).map((align) => (
-                          <label key={align} className="receipt-logo-align-option">
-                            <input
-                              type="radio"
-                              name="print_logo_align"
-                              value={align}
-                              checked={form.print_logo_align === align}
-                              disabled={!form.print_logo_enabled}
-                              onChange={() => setForm((current) => ({ ...current, print_logo_align: align }))}
-                            />
-                            <span>{align.charAt(0).toUpperCase() + align.slice(1)}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  {form.print_logo_enabled && (businessLogoPreview || form.business_logo_path) ? (
-                    <div
-                      className="receipt-logo-print-preview"
-                      style={{ textAlign: form.print_logo_align }}
-                    >
-                      <img
-                        src={businessLogoPreview || form.business_logo_path}
-                        alt="Print logo preview"
-                        className="receipt-logo-print-preview__image"
-                        style={{
-                          width: `${Math.round((normalizePrintLogoWidth(form.print_logo_width) / 384) * 100)}%`,
-                          maxWidth: '100%',
-                        }}
-                      />
-                    </div>
-                  ) : null}
-                </div>
               </div>
               <div className="field field--full">
                 <label htmlFor="busi_name">Business name</label>
@@ -542,21 +483,66 @@ function ReceiptHeadingPage() {
                   disabled={form.busi_vat_type === 'VAT-EXEMPT TIN'}
                 />
               </div>
+              <div className="field">
+                <label htmlFor="price_vat_mode">Price VAT mode</label>
+                <select
+                  id="price_vat_mode"
+                  name="price_vat_mode"
+                  value={form.price_vat_mode}
+                  onChange={handleChange}
+                  disabled={form.busi_vat_type === 'VAT-EXEMPT TIN'}
+                >
+                  {priceVatModeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field field--full">
+                {form.busi_vat_type === 'VAT-EXEMPT TIN' ? (
+                  <p className="field-hint">
+                    Price VAT mode does not apply when the business is VAT-exempt. Product prices are treated as
+                    non-VAT amounts at checkout.
+                  </p>
+                ) : (
+                  <>
+                    <p className="field-hint">
+                      <strong>VAT Inclusive:</strong> Product prices already include VAT. The POS extracts VAT from the
+                      selling price; the customer pays the listed price as the grand total.
+                    </p>
+                    <p className="field-hint">
+                      <strong>VAT Exclusive:</strong> Product prices are before VAT. The POS adds VAT on top at
+                      checkout, so the grand total is higher than the sum of listed prices.
+                    </p>
+                    <p className="field-hint">
+                      Currently selected:{' '}
+                      {form.price_vat_mode === 'EXCLUSIVE'
+                        ? 'VAT Exclusive — VAT is added to product prices at checkout.'
+                        : 'VAT Inclusive — product prices already include VAT.'}
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
           </article>
 
-          <article className="panel settings-card">
-            <div className="panel-header">
-              <div>
-                <h2 className="card-title-with-icon">
-                  <span className="card-icon card-icon--developer" aria-hidden="true" />
-                  Developer Information
-                </h2>
-                <p>Used for compliance, software accreditation, and support references.</p>
+          <article className="panel settings-panel">
+            <div className="audit-card-header">
+              <div className="audit-card-header__intro">
+                <p className="admin-breadcrumb settings-panel__breadcrumb-spacer" aria-hidden="true">
+                  &nbsp;
+                </p>
+                <h1 className="audit-card-title">Developer Information</h1>
+                <p className="audit-card-description">Used for compliance, software accreditation, and support references.</p>
               </div>
+              <span
+                className="receipt-print-settings-trigger receipt-print-settings-trigger--spacer"
+                aria-hidden="true"
+              />
             </div>
 
-            <div className="settings-form-grid settings-form-grid--single-column">
+            <div className="settings-form-grid">
               <div className="field field--full receipt-logo-field">
                 <label htmlFor="developer_logo">Developer logo</label>
                 <div className="receipt-logo-row">
@@ -613,19 +599,19 @@ function ReceiptHeadingPage() {
                   onChange={handleChange}
                 />
               </div>
-              <div className="field field--full">
+              <div className="field">
                 <label htmlFor="valid_start">Valid start</label>
                 <input id="valid_start" name="valid_start" type="date" value={form.valid_start} onChange={handleChange} />
               </div>
-              <div className="field field--full">
+              <div className="field">
                 <label htmlFor="valid_until">Valid until</label>
                 <input id="valid_until" name="valid_until" type="date" value={form.valid_until} onChange={handleChange} />
               </div>
-              <div className="field field--full">
+              <div className="field">
                 <label htmlFor="softwareversion">Software version</label>
                 <input id="softwareversion" name="softwareversion" value={form.softwareversion} onChange={handleChange} />
               </div>
-              <div className="field field--full">
+              <div className="field">
                 <label htmlFor="contactdetail">Contact detail</label>
                 <input id="contactdetail" name="contactdetail" value={form.contactdetail} onChange={handleChange} />
               </div>
@@ -642,6 +628,103 @@ function ReceiptHeadingPage() {
           </ThemedButton>
         </div>
       </form>
+
+      {isPrintLogoModalOpen ? (
+        <div
+          className="terminal-modal-backdrop"
+          role="presentation"
+          onClick={() => setIsPrintLogoModalOpen(false)}
+        >
+          <article
+            className="panel settings-card terminal-modal receipt-print-logo-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Print logo on receipts"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="panel-header">
+              <div>
+                <h2>Print logo on receipts</h2>
+                <p>Applies to sales receipts, test prints, and X/Z reports on all POS terminals.</p>
+              </div>
+              <button
+                type="button"
+                className="receipt-print-settings-trigger"
+                aria-label="Close print logo settings"
+                onClick={() => setIsPrintLogoModalOpen(false)}
+              >
+                <ButtonIcon name="close" />
+              </button>
+            </div>
+
+            <div className="receipt-logo-print-settings receipt-logo-print-settings--modal">
+              <label className="receipt-logo-print-settings__toggle">
+                <input
+                  type="checkbox"
+                  checked={form.print_logo_enabled}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, print_logo_enabled: event.target.checked }))
+                  }
+                />
+                <span>Enable logo on print</span>
+              </label>
+              <div className="settings-form-grid receipt-logo-print-settings__grid">
+                <div className="field">
+                  <label htmlFor="print_logo_width">Width on 80mm paper (dots)</label>
+                  <input
+                    id="print_logo_width"
+                    name="print_logo_width"
+                    type="number"
+                    min={80}
+                    max={384}
+                    step={8}
+                    value={form.print_logo_width}
+                    disabled={!form.print_logo_enabled}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div className="field field--full">
+                  <span className="field-label">Position</span>
+                  <div className="receipt-logo-align-options" role="radiogroup" aria-label="Logo position">
+                    {(['left', 'center', 'right'] as PrintLogoAlign[]).map((align) => (
+                      <label key={align} className="receipt-logo-align-option">
+                        <input
+                          type="radio"
+                          name="print_logo_align"
+                          value={align}
+                          checked={form.print_logo_align === align}
+                          disabled={!form.print_logo_enabled}
+                          onChange={() => setForm((current) => ({ ...current, print_logo_align: align }))}
+                        />
+                        <span>{align.charAt(0).toUpperCase() + align.slice(1)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {form.print_logo_enabled && (businessLogoPreview || form.business_logo_path) ? (
+                <div className="receipt-logo-print-preview" style={{ textAlign: form.print_logo_align }}>
+                  <img
+                    src={businessLogoPreview || form.business_logo_path}
+                    alt="Print logo preview"
+                    className="receipt-logo-print-preview__image"
+                    style={{
+                      width: `${Math.round((normalizePrintLogoWidth(form.print_logo_width) / 384) * 100)}%`,
+                      maxWidth: '100%',
+                    }}
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            <div className="settings-actions">
+              <ThemedButton type="button" variant="primary" onClick={() => setIsPrintLogoModalOpen(false)}>
+                <ButtonLabel icon="check">Done</ButtonLabel>
+              </ThemedButton>
+            </div>
+          </article>
+        </div>
+      ) : null}
     </AdminShell>
   )
 }

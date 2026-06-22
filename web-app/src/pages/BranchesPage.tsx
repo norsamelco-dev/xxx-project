@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import AdminShell from '../components/AdminShell'
 import { ThemedButton } from '../components/ThemedButton'
-import { ThemedDataGrid } from '../components/ThemedDataGrid'
 import { ButtonLabel } from '../components/ButtonIcon'
 import { usePageVisitAudit } from '../hooks/usePageVisitAudit'
 import { apiFetch } from '../lib/api'
@@ -37,6 +36,7 @@ function BranchesPage() {
   const [rows, setRows] = useState<BranchRow[]>([])
   const [form, setForm] = useState<BranchForm>(initialForm)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [selectedRowId, setSelectedRowId] = useState<number | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<BranchRow | null>(null)
   const [deletePasswords, setDeletePasswords] = useState<string[]>(initialDeletePasswords)
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -72,6 +72,7 @@ function BranchesPage() {
   }
 
   function handleEdit(row: BranchRow) {
+    setSelectedRowId(row.branch_id)
     setEditingId(row.branch_id)
     setForm({
       branch_code: row.branch_code,
@@ -250,53 +251,78 @@ function BranchesPage() {
           {!isLoading && rows.length === 0 ? <div className="empty-state">No branches found.</div> : null}
 
           {!isLoading && rows.length > 0 ? (
-            <ThemedDataGrid variant="users">
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Code</th>
-                    <th>Name</th>
-                    <th>Address</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.branch_id}>
-                      <td>{row.branch_id}</td>
-                      <td>{row.branch_code}</td>
-                      <td>{row.branch_name}</td>
-                      <td>{row.address || '-'}</td>
-                      <td>{row.is_active ? 'Active' : 'Inactive'}</td>
-                      <td>
-                        <div className="table-actions">
-                          <button className="terminal-action" type="button" onClick={() => handleEdit(row)}>
-                            <ButtonLabel icon="edit">Edit</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
-                            className="terminal-action stock-batch-delete-button"
-                            onClick={() => handleOpenDeleteModal(row)}
-                            aria-label={`Delete branch ${row.branch_name}`}
-                            title="Delete branch"
-                          >
-                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className="stock-batch-trash-icon">
-                              <path d="M4 7h16" />
-                              <path d="M9 7V5h6v2" />
-                              <path d="M8 7l1 12h6l1-12" />
-                              <path d="M10 10v6" />
-                              <path d="M14 10v6" />
-                            </svg>
-                          </button>
+            <div className="branch-card-grid">
+              {rows.map((row) => {
+                const isSelected = selectedRowId === row.branch_id
+
+                return (
+                  <article
+                    key={row.branch_id}
+                    className={`branch-card${isSelected ? ' branch-card--selected' : ''}`}
+                    onClick={() => setSelectedRowId(row.branch_id)}
+                  >
+                    <div className="branch-card__header">
+                      <div className="branch-card__title-group">
+                        <div>
+                          <h3 className="branch-card__title">{row.branch_name}</h3>
+                          <span className="code-chip">{row.branch_code}</span>
+                          <p className="branch-card__status">{row.is_active ? 'Active' : 'Inactive'}</p>
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </ThemedDataGrid>
+                      </div>
+                      <span className="branch-card__id">#{row.branch_id}</span>
+                    </div>
+
+                    <dl className="branch-card__details">
+                      <div className="branch-card__details-row">
+                        <div className="branch-card__detail">
+                          <dt>Branch Code</dt>
+                          <dd>{row.branch_code}</dd>
+                        </div>
+                        <div className="branch-card__detail">
+                          <dt>Status</dt>
+                          <dd>{row.is_active ? 'Active' : 'Inactive'}</dd>
+                        </div>
+                      </div>
+                      <div className="branch-card__detail branch-card__detail--full">
+                        <dt>Address</dt>
+                        <dd>{row.address || '-'}</dd>
+                      </div>
+                    </dl>
+
+                    <div className="branch-card__actions">
+                      <button
+                        className="terminal-action"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleEdit(row)
+                        }}
+                      >
+                        <ButtonLabel icon="edit">Edit</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        className="terminal-action stock-batch-delete-button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleOpenDeleteModal(row)
+                        }}
+                        aria-label={`Delete branch ${row.branch_name}`}
+                        title="Delete branch"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" className="stock-batch-trash-icon">
+                          <path d="M4 7h16" />
+                          <path d="M9 7V5h6v2" />
+                          <path d="M8 7l1 12h6l1-12" />
+                          <path d="M10 10v6" />
+                          <path d="M14 10v6" />
+                        </svg>
+                      </button>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
           ) : null}
         </article>
       </section>

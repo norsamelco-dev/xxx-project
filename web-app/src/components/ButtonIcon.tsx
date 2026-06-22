@@ -22,6 +22,7 @@ export type ButtonIconName =
   | 'settings'
   | 'check'
   | 'minus'
+  | 'printer'
 
 type ButtonIconProps = SVGProps<SVGSVGElement> & {
   name: ButtonIconName
@@ -154,6 +155,14 @@ function IconPath({ name }: { name: ButtonIconName }) {
           <path d="M20 12h2" />
           <path d="M4.9 19.1l1.4-1.4" />
           <path d="M17.7 6.3l1.4-1.4" />
+        </>
+      )
+    case 'printer':
+      return (
+        <>
+          <path d="M6 9V4h12v5" />
+          <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+          <path d="M6 14h12v7H6z" />
         </>
       )
     default:

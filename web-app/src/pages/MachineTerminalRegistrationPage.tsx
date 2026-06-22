@@ -97,6 +97,17 @@ function formatOrValue(value: number | null) {
   return String(value).padStart(8, '0')
 }
 
+function formatOrRange(start: number | null, end: number | null) {
+  const startText = formatOrValue(start)
+  const endText = formatOrValue(end)
+
+  if (!startText && !endText) {
+    return '-'
+  }
+
+  return `${startText || '-'} - ${endText || '-'}`
+}
+
 const duplicateFieldLabels: Record<DuplicateField['field'], string> = {
   machine_name: 'MachineName',
   serial_number: 'SerialNumber',
@@ -474,37 +485,39 @@ function MachineTerminalRegistrationPage() {
                     </div>
 
                     <dl className="terminal-card__details">
-                      <div className="terminal-card__detail">
-                        <dt>Serial Number</dt>
-                        <dd>{row.serial_number || '-'}</dd>
+                      <div className="terminal-card__details-row terminal-card__details-row--triple">
+                        <div className="terminal-card__detail">
+                          <dt>Serial Number</dt>
+                          <dd>{row.serial_number || '-'}</dd>
+                        </div>
+                        <div className="terminal-card__detail">
+                          <dt>Machine ID No.</dt>
+                          <dd>{row.min_number || '-'}</dd>
+                        </div>
+                        <div className="terminal-card__detail">
+                          <dt>Permit To Use</dt>
+                          <dd>{row.ptu_number || '-'}</dd>
+                        </div>
                       </div>
-                      <div className="terminal-card__detail">
-                        <dt>Machine ID No.</dt>
-                        <dd>{row.min_number || '-'}</dd>
+                      <div className="terminal-card__details-row">
+                        <div className="terminal-card__detail">
+                          <dt>OR Range</dt>
+                          <dd>{formatOrRange(row.or_start, row.or_end)}</dd>
+                        </div>
+                        <div className="terminal-card__detail">
+                          <dt>OR Current</dt>
+                          <dd>{formatOrValue(row.current_or) || '-'}</dd>
+                        </div>
                       </div>
-                      <div className="terminal-card__detail">
-                        <dt>Permit To Use</dt>
-                        <dd>{row.ptu_number || '-'}</dd>
-                      </div>
-                      <div className="terminal-card__detail">
-                        <dt>OR Start</dt>
-                        <dd>{formatOrValue(row.or_start) || '-'}</dd>
-                      </div>
-                      <div className="terminal-card__detail">
-                        <dt>OR End</dt>
-                        <dd>{formatOrValue(row.or_end) || '-'}</dd>
-                      </div>
-                      <div className="terminal-card__detail">
-                        <dt>OR Current</dt>
-                        <dd>{formatOrValue(row.current_or) || '-'}</dd>
-                      </div>
-                      <div className="terminal-card__detail">
-                        <dt>Valid From</dt>
-                        <dd>{toInputDate(row.valid_start) || '-'}</dd>
-                      </div>
-                      <div className="terminal-card__detail">
-                        <dt>Valid Until</dt>
-                        <dd>{toInputDate(row.valid_end) || '-'}</dd>
+                      <div className="terminal-card__details-row">
+                        <div className="terminal-card__detail">
+                          <dt>Valid From</dt>
+                          <dd>{toInputDate(row.valid_start) || '-'}</dd>
+                        </div>
+                        <div className="terminal-card__detail">
+                          <dt>Valid Until</dt>
+                          <dd>{toInputDate(row.valid_end) || '-'}</dd>
+                        </div>
                       </div>
                     </dl>
 

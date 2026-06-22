@@ -1,5 +1,4 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
-import { ThemedDataGrid } from '../components/ThemedDataGrid'
 import { ThemedButton } from '../components/ThemedButton'
 import AdminShell from '../components/AdminShell'
 import { ButtonLabel } from '../components/ButtonIcon'
@@ -511,18 +510,19 @@ function UsersPage() {
         {error ? <div className="error-state">{error}</div> : null}
         {success ? <div className="success-state">{success}</div> : null}
 
-        <article className="surface-card surface-card--wide">
-          <div className="audit-card-header">
-            <div>
+        <article className="surface-card surface-card--wide admin-page-main">
+          <div className="audit-card-header audit-card-header--with-filters">
+            <div className="audit-card-header__intro">
               <p className="admin-breadcrumb">Dashboard / Users</p>
               <h1 className="audit-card-title">Users</h1>
               <p className="audit-card-description">Add, edit, and delete users in the users table.</p>
             </div>
 
-            <div className="audit-card-actions">
-              <label className="field" style={{ marginBottom: 0, minWidth: 220 }}>
-                <span style={{ display: 'block', fontSize: 12, marginBottom: 4, opacity: 0.8 }}>Branch</span>
+            <div className="users-header-toolbar">
+              <div className="field users-branch-filter">
+                <label htmlFor="users_branch_filter">Branch</label>
                 <select
+                  id="users_branch_filter"
                   value={branchFilterId}
                   onChange={(event) => setBranchFilterId(event.target.value)}
                   aria-label="Filter users by branch"
@@ -534,13 +534,15 @@ function UsersPage() {
                     </option>
                   ))}
                 </select>
-              </label>
-              <button className="topbar-button topbar-button--ghost" type="button" onClick={() => void loadRows(branchFilterId)}>
-                <ButtonLabel icon="reload">Reload</ButtonLabel>
-              </button>
-              <button className="topbar-button" type="button" onClick={handleAddNew}>
-                <ButtonLabel icon="plus">Add User</ButtonLabel>
-              </button>
+              </div>
+              <div className="audit-filter-actions">
+                <button className="topbar-button topbar-button--ghost" type="button" onClick={() => void loadRows(branchFilterId)}>
+                  <ButtonLabel icon="reload">Reload</ButtonLabel>
+                </button>
+                <button className="topbar-button" type="button" onClick={handleAddNew}>
+                  <ButtonLabel icon="plus">Add User</ButtonLabel>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -548,71 +550,81 @@ function UsersPage() {
           {!isLoading && rows.length === 0 ? <div className="empty-state">No user records found.</div> : null}
 
           {!isLoading && rows.length > 0 ? (
-            <ThemedDataGrid variant="users">
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Avatar</th>
-                    <th>Username / Name</th>
-                    <th>Role</th>
-                    <th>Branch</th>
-                    <th>Status</th>
-                    <th>Permissions</th>
-                    <th>Created At</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => {
-                    const permissionLabels = pageAccessLabels(row.PAGE_ACCESS_JSON)
-                    const avatar = getRoleAvatar(row.role)
+            <div className="user-card-grid">
+              {rows.map((row) => {
+                const permissionLabels = pageAccessLabels(row.PAGE_ACCESS_JSON)
+                const avatar = getRoleAvatar(row.role)
+                const isSelected = selectedRowId === row.user_id
 
-                    return (
-                      <tr key={row.user_id} className={selectedRowId === row.user_id ? 'terminal-row-selected' : ''}>
-                        <td>{row.user_id}</td>
-                        <td className="users-avatar-cell">
-                          <span className={avatar.className} title={row.role || 'User'} aria-label={`${row.role || 'User'} avatar`}>
-                            {avatar.icon}
-                          </span>
-                        </td>
-                        <td>
-                          <div><strong>{row.username}</strong></div>
-                          <div>{row.full_name || ''}</div>
-                        </td>
-                        <td>{row.role}</td>
-                        <td>{row.branch_name || row.branch_code || row.branch_id}</td>
-                        <td>{row.ACTIVE ? 'Active' : 'Inactive'}</td>
-                        <td>
+                return (
+                  <article
+                    key={row.user_id}
+                    className={`user-card${isSelected ? ' user-card--selected' : ''}`}
+                    onClick={() => setSelectedRowId(row.user_id)}
+                  >
+                    <div className="user-card__header">
+                      <div className="user-card__title-group">
+                        <span className={avatar.className} title={row.role || 'User'} aria-label={`${row.role || 'User'} avatar`}>
+                          {avatar.icon}
+                        </span>
+                        <div>
+                          <h3 className="user-card__title">{row.username}</h3>
+                          <p className="user-card__subtitle">{row.full_name || 'No full name'}</p>
+                          <p className="user-card__status">{row.ACTIVE ? 'Active' : 'Inactive'}</p>
+                        </div>
+                      </div>
+                      <span className="user-card__id">#{row.user_id}</span>
+                    </div>
+
+                    <dl className="user-card__details">
+                      <div className="user-card__details-row">
+                        <div className="user-card__detail">
+                          <dt>Role</dt>
+                          <dd>{row.role}</dd>
+                        </div>
+                        <div className="user-card__detail">
+                          <dt>Branch</dt>
+                          <dd>{row.branch_name || row.branch_code || row.branch_id}</dd>
+                        </div>
+                      </div>
+                      <div className="user-card__detail user-card__detail--full">
+                        <dt>Created At</dt>
+                        <dd>{toInputDateTime(row.created_at) || '-'}</dd>
+                      </div>
+                      <div className="user-card__detail user-card__detail--full">
+                        <dt>Permissions</dt>
+                        <dd>
                           {permissionLabels.length === 0 ? (
                             '-'
                           ) : (
                             <div className="permissions-wrap">
-                              {permissionLabels.map((label, index) => (
-                                <div key={`${row.user_id}-${label}`} className="permissions-item">
-                                  <span className="permission-chip">{label}</span>
-                                  {index < permissionLabels.length - 1 ? (
-                                    <span className="permission-separator" aria-hidden="true">|</span>
-                                  ) : null}
-                                </div>
+                              {permissionLabels.map((label) => (
+                                <span key={`${row.user_id}-${label}`} className="permission-chip">
+                                  {label}
+                                </span>
                               ))}
                             </div>
                           )}
-                        </td>
-                        <td>{toInputDateTime(row.created_at)}</td>
-                        <td>
-                          <div className="table-actions">
-                            <button className="terminal-action" type="button" onClick={() => handleEdit(row)}>
-                              <ButtonLabel icon="edit">Edit</ButtonLabel>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </ThemedDataGrid>
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <div className="user-card__actions">
+                      <button
+                        className="terminal-action"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleEdit(row)
+                        }}
+                      >
+                        <ButtonLabel icon="edit">Edit</ButtonLabel>
+                      </button>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
           ) : null}
         </article>
       </section>
