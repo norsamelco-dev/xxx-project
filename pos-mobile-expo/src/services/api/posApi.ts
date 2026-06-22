@@ -186,16 +186,17 @@ export async function checkout(payload: {
   return response.data.data
 }
 
-export async function getXReport(machineName: string) {
+export async function getXReport(machineName: string, salesSeriesNo: string) {
   const response = await apiClient.get<{ data: PosReport }>('/api/pos/reports/x', {
-    params: { machine_name: machineName },
+    params: { machine_name: machineName, sales_series_no: salesSeriesNo },
   })
   return response.data.data
 }
 
-export async function runZReport(machineName: string) {
+export async function runZReport(machineName: string, salesSeriesNo: string) {
   const response = await apiClient.post<{ data: PosReport }>('/api/pos/reports/z', {
     machine_name: machineName,
+    sales_series_no: salesSeriesNo,
   })
   return response.data.data
 }

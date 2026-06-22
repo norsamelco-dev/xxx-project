@@ -67,11 +67,18 @@ export default function CashCountSheetModal({
     setDenominations(saved.denominations)
     setCoinsOther(saved.coinsOther)
 
+    if (!activeSeriesNo) {
+      setReport(null)
+      setLoadError('Select an active sales series first.')
+      setIsLoading(false)
+      return
+    }
+
     let isMounted = true
     setIsLoading(true)
     setLoadError('')
 
-    void getXReport(config.terminal_name)
+    void getXReport(config.terminal_name, activeSeriesNo)
       .then((data) => {
         if (isMounted) {
           setReport(data)

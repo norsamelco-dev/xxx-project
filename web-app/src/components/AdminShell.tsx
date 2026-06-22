@@ -47,7 +47,7 @@ const navigationSections = [
   {
     label: 'General',
     items: [
-      { to: '/dashboard-x', label: 'DashboardX', accessKey: 'dashboardX' },
+      { to: '/dashboard-x', label: 'Dashboard', accessKey: 'dashboardX' },
       { to: '/audit-logs', label: 'Audit Logs', accessKey: 'auditLogs' },
       { to: '/inventory', label: 'Inventory Workspace', accessKey: 'products' },
       { to: '/damage-reports', label: 'Damage Reports', accessKey: 'damageReports' },

@@ -309,7 +309,11 @@ router.get('/sales/transactions/:orsi/receipt', async (request, response) => {
 
 router.get('/reports/x', async (request, response) => {
   try {
-    const data = await getXReport(request.query.machine_name, request.posUser);
+    const data = await getXReport(
+      request.query.machine_name,
+      request.query.sales_series_no,
+      request.posUser,
+    );
     return response.json({ data });
   } catch (error) {
     return response.status(error.statusCode || 500).json({ error: error.message });
@@ -318,7 +322,11 @@ router.get('/reports/x', async (request, response) => {
 
 router.post('/reports/z', async (request, response) => {
   try {
-    const data = await runZReport(request.body.machine_name, request.posUser);
+    const data = await runZReport(
+      request.body.machine_name,
+      request.body.sales_series_no,
+      request.posUser,
+    );
     return response.json({ data });
   } catch (error) {
     return response.status(error.statusCode || 500).json({ error: error.message });

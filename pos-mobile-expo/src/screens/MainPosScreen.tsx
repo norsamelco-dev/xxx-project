@@ -643,7 +643,7 @@ export default function MainPosScreen({ navigation }: Props) {
     try {
       const branchCode = resolveBranchCode(config)
       const [report, heading] = await Promise.all([
-        getXReport(config.terminal_name),
+        getXReport(config.terminal_name, activeSeriesNo),
         receiptHeading ? Promise.resolve(receiptHeading) : getReceiptHeadingPublic(branchCode),
       ])
       if (!receiptHeading) {
@@ -673,7 +673,7 @@ export default function MainPosScreen({ navigation }: Props) {
     setReportPrintPayload(null)
 
     try {
-      const data = await runZReport(config.terminal_name)
+      const data = await runZReport(config.terminal_name, activeSeriesNo)
       await refreshSeries()
       const heading = receiptHeading ?? (await getReceiptHeadingPublic(resolveBranchCode(config)))
       if (!receiptHeading) {

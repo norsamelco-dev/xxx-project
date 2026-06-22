@@ -73,6 +73,7 @@ export type SeriesCloseRequirements = {
 export type PosReport = PosSummary & {
   report_type: 'X' | 'Z'
   machine_name: string
+  sales_series_no?: string
   generated_at: string
   cashier_name?: string
   gross_sales: number

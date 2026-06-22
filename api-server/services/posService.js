@@ -1050,7 +1050,7 @@ async function checkout(payload, user) {
         (Created_at, sales_series_no, MachineName, PTU, ORSI, sales_amt, discountrate, discount_amount,
          sales_vatable_amount, sales_vat_rate, sales_price_vat_mode, sales_total_amt, sales_grandtotal, amt_tendered, amt_change,
          payment_method, payment_ref_no, total_item_sold, userid, username, VOIDED, VOID_REASON, branch_id)
-       VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'N', 'N/A', ?)`,
+       VALUES (NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'N', 'N/A', ?)`,
       [
         salesSeriesNo,
         machineName,
@@ -1170,11 +1170,18 @@ function formatOrsiDisplay(value) {
   return String(numeric).padStart(8, '0');
 }
 
-async function buildReportPayload(machineName, reportType, user) {
+async function buildReportPayload(machineName, fullSeriesNo, reportType, user) {
   const normalized = normalizeText(machineName);
+  const normalizedSeriesNo = normalizeText(fullSeriesNo);
 
   if (!normalized) {
     const error = new Error('machine_name is required.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!normalizedSeriesNo) {
+    const error = new Error('sales_series_no is required.');
     error.statusCode = 400;
     throw error;
   }
@@ -1183,14 +1190,30 @@ async function buildReportPayload(machineName, reportType, user) {
   const vatSettings = await getBranchVatSettings(branchId);
 
   const [seriesRows] = await getPool().query(
-    `SELECT COALESCE(SUM(COALESCE(ss.starting_balance, 0)), 0) AS starting_balance
-     FROM sales_series ss
-     WHERE ss.machine_id = ?
-       AND DATE(ss.created_at) = CURDATE()`,
-    [normalized],
+    `SELECT full_series_no, starting_balance, lockbatch
+     FROM sales_series
+     WHERE full_series_no = ?
+       AND machine_id = ?
+       AND userid = ?
+     LIMIT 1`,
+    [normalizedSeriesNo, normalized, user.userId],
   );
 
-  const startingBalance = roundMoney(seriesRows[0]?.starting_balance ?? 0);
+  if (!seriesRows.length) {
+    const error = new Error('Sales series not found for this cashier.');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const series = seriesRows[0];
+
+  if (String(series.lockbatch || 'N').toUpperCase() === 'Y') {
+    const error = new Error('Sales series is already closed.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const startingBalance = roundMoney(series.starting_balance ?? 0);
 
   const [rows] = await getPool().query(
     `SELECT
@@ -1244,9 +1267,11 @@ async function buildReportPayload(machineName, reportType, user) {
           END
         ), 0) AS cash_in_drawer
      FROM sales_a sa
-     WHERE sa.MachineName = ?
-       AND DATE(sa.Created_at) = CURDATE()`,
-    [normalized],
+     WHERE sa.sales_series_no = ?
+       AND sa.userid = ?
+       AND sa.MachineName = ?
+       AND sa.branch_id = ?`,
+    [normalizedSeriesNo, user.userId, normalized, branchId],
   );
 
   const summary = rows[0] || {};
@@ -1262,6 +1287,7 @@ async function buildReportPayload(machineName, reportType, user) {
   return {
     report_type: reportType,
     machine_name: normalized,
+    sales_series_no: normalizedSeriesNo,
     generated_at: new Date().toISOString(),
     cashier_name: user?.fullName || user?.username || '',
     gross_sales: roundMoney(summary.gross_sales),
@@ -1289,11 +1315,11 @@ async function buildReportPayload(machineName, reportType, user) {
   };
 }
 
-async function getXReport(machineName, user) {
-  return buildReportPayload(machineName, 'X', user);
+async function getXReport(machineName, fullSeriesNo, user) {
+  return buildReportPayload(machineName, fullSeriesNo, 'X', user);
 }
 
-async function runZReport(machineName, user) {
+async function runZReport(machineName, fullSeriesNo, user) {
   const normalized = normalizeText(machineName);
 
   if (!normalized) {
@@ -1302,7 +1328,7 @@ async function runZReport(machineName, user) {
     throw error;
   }
 
-  const payload = await buildReportPayload(normalized, 'Z', user);
+  const payload = await buildReportPayload(normalized, fullSeriesNo, 'Z', user);
 
   return {
     ...payload,
