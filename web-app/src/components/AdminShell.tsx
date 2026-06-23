@@ -1,7 +1,7 @@
 import { Link, NavLink } from 'react-router-dom'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { apiFetch } from '../lib/api'
+import { apiFetch, getActiveApiMode, onApiModeChange, resolveAssetUrl } from '../lib/api'
 import { ButtonLabel } from './ButtonIcon'
 import { ThemedButton } from './ThemedButton'
 import { themeList } from '../themes'
@@ -70,6 +70,7 @@ function AdminShell({ title, description, children, actions, hideTopbar = false 
   const { user, logout } = useAuth()
   const { theme, themeId, defaultThemeId, setThemeId, resetToDefault } = useTheme()
   const [brand, setBrand] = useState<ReceiptHeadingBrand | null>(null)
+  const [apiMode, setApiMode] = useState(getActiveApiMode)
   const [brandIconSize, setBrandIconSize] = useState(44)
   const [isDisplaySettingsOpen, setIsDisplaySettingsOpen] = useState(false)
   const [uiScale, setUiScale] = useState(() => parseStoredUiScale(localStorage.getItem(uiScaleStorageKey)))
@@ -80,6 +81,8 @@ function AdminShell({ title, description, children, actions, hideTopbar = false 
   useEffect(() => {
     void loadBrand()
   }, [])
+
+  useEffect(() => onApiModeChange(() => setApiMode(getActiveApiMode())), [])
 
   useEffect(() => {
     const canvas = adminCanvasRef.current
@@ -198,9 +201,9 @@ function AdminShell({ title, description, children, actions, hideTopbar = false 
     <main className="admin-shell">
       <aside className="admin-sidebar">
         <div className="sidebar-brand">
-          {brand?.business_logo_path ? (
+          {resolveAssetUrl(brand?.business_logo_path) ? (
             <img
-              src={brand.business_logo_path}
+              src={resolveAssetUrl(brand?.business_logo_path) || ''}
               alt="Business logo"
               className="brand-logo"
               style={{ width: `${brandIconSize}px`, height: `${brandIconSize}px` }}
@@ -266,6 +269,11 @@ function AdminShell({ title, description, children, actions, hideTopbar = false 
             </div>
 
             <div className="admin-topbar-actions">
+              {apiMode === 'offline' ? (
+                <span className="admin-api-mode-badge" title="Using offline API server">
+                  Offline API
+                </span>
+              ) : null}
               <label className="admin-search" aria-label="Search">
                 <span>Search</span>
                 <input type="search" placeholder="Search modules, tables, settings" />

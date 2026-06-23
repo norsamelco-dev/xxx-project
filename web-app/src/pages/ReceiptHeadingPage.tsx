@@ -3,7 +3,7 @@ import { ThemedButton } from '../components/ThemedButton'
 import AdminShell from '../components/AdminShell'
 import { ButtonLabel, ButtonIcon } from '../components/ButtonIcon'
 import { usePageVisitAudit } from '../hooks/usePageVisitAudit'
-import { apiFetch } from '../lib/api'
+import { apiFetch, resolveAssetUrl } from '../lib/api'
 import { AUDIT_PAGES, buildAuditDescription } from '../lib/audit'
 
 const vatTypeOptions = ['VAT REG TIN', 'VAT-EXEMPT TIN'] as const
@@ -407,7 +407,7 @@ function ReceiptHeadingPage() {
                   <div className="receipt-logo-preview-wrap">
                     {businessLogoPreview || form.business_logo_path ? (
                       <img
-                        src={businessLogoPreview || form.business_logo_path}
+                        src={businessLogoPreview || resolveAssetUrl(form.business_logo_path) || ''}
                         alt="Business logo preview"
                         className="receipt-logo-preview"
                       />
@@ -549,7 +549,7 @@ function ReceiptHeadingPage() {
                   <div className="receipt-logo-preview-wrap">
                     {developerLogoPreview || form.developer_logo_path ? (
                       <img
-                        src={developerLogoPreview || form.developer_logo_path}
+                        src={developerLogoPreview || resolveAssetUrl(form.developer_logo_path) || ''}
                         alt="Developer logo preview"
                         className="receipt-logo-preview"
                       />
@@ -705,7 +705,7 @@ function ReceiptHeadingPage() {
               {form.print_logo_enabled && (businessLogoPreview || form.business_logo_path) ? (
                 <div className="receipt-logo-print-preview" style={{ textAlign: form.print_logo_align }}>
                   <img
-                    src={businessLogoPreview || form.business_logo_path}
+                    src={businessLogoPreview || resolveAssetUrl(form.business_logo_path) || ''}
                     alt="Print logo preview"
                     className="receipt-logo-print-preview__image"
                     style={{

@@ -1,5 +1,6 @@
 import type { LoginLayoutProps } from '../types'
 import { LoginForm } from '../shared/LoginForm'
+import { resolveAssetUrl } from '../../lib/api'
 
 export function Theme2LoginLayout({
   themeLogoSrc,
@@ -15,7 +16,7 @@ export function Theme2LoginLayout({
   onPasswordChange,
   onSubmit,
 }: LoginLayoutProps) {
-  const logoSrc = receiptHeading?.business_logo_path || themeLogoSrc
+  const logoSrc = resolveAssetUrl(receiptHeading?.business_logo_path) || themeLogoSrc
   const companyName = receiptHeading?.busi_name || themeCompanyName
 
   return (

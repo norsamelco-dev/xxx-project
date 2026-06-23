@@ -80,8 +80,15 @@ function toBlobDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+import { resolveAssetUrl } from './api'
+
 export async function loadPdfImageDataUrl(imagePath: string): Promise<string> {
-  const response = await fetch(imagePath, { credentials: 'include' })
+  const resolvedPath = resolveAssetUrl(imagePath)
+  if (!resolvedPath) {
+    throw new Error('Unable to load business logo for export.')
+  }
+
+  const response = await fetch(resolvedPath, { credentials: 'include' })
   if (!response.ok) {
     throw new Error('Unable to load business logo for export.')
   }

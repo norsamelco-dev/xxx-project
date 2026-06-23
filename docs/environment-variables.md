@@ -21,9 +21,25 @@ Upload paths for logos and product images are typically under `api-server/upload
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VITE_API_URL` | (proxy) | API base URL; dev often uses Vite proxy to `/api` |
+| `VITE_API_ONLINE_BASE_URL` | (empty) | Primary API host (e.g. `https://pos-api.lindalim.shop`) |
+| `VITE_API_OFFLINE_BASE_URL` | (empty) | Fallback API when online is unreachable (e.g. `http://127.0.0.1:5000`) |
+| `VITE_API_BASE_URL` | (empty) | Legacy single URL; used as online when `VITE_API_ONLINE_BASE_URL` is empty |
+| `VITE_APP_THEME` | `theme1` | Admin UI theme |
 
-Production build: point `VITE_API_URL` to `https://pos-api.lindalim.shop` or your host.
+### API failover
+
+When **either** online or offline URL is set, `apiFetch` tries the online URL first. On a network failure (no HTTP response), it retries against the offline URL and sticks to whichever base last succeeded.
+
+- If **both** online and offline are empty in dev, Vite proxies `/api` to `http://localhost:5000` (same-origin).
+- Sessions are per host; users must sign in again after failover switches to a different API origin.
+- Online and offline APIs should use the same database for consistent data.
+
+Production build example:
+
+```env
+VITE_API_ONLINE_BASE_URL=https://pos-api.lindalim.shop
+VITE_API_OFFLINE_BASE_URL=http://192.168.1.10:5000
+```
 
 ## pos-mobile-expo
 

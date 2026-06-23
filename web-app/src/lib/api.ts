@@ -1,23 +1,119 @@
 import type { AuditMeta } from './audit'
 
+export type ApiMode = 'online' | 'offline' | 'proxy'
+
 function normalizeBaseUrl(url: string): string {
   return url.replace(/\/+$/, '')
 }
 
-function getApiBaseUrl(): string {
-  if (import.meta.env.DEV) {
-    // In dev, force same-origin API requests so Vite proxy handles backend routing.
-    // This avoids cross-origin cookie/session pitfalls that cause immediate 401 after login.
+function readEnvUrl(key: keyof ImportMetaEnv): string {
+  const value = import.meta.env[key]
+  return typeof value === 'string' ? normalizeBaseUrl(value.trim()) : ''
+}
+
+function getConfiguredOnlineUrl(): string {
+  return readEnvUrl('VITE_API_ONLINE_BASE_URL') || readEnvUrl('VITE_API_BASE_URL')
+}
+
+function getConfiguredOfflineUrl(): string {
+  return readEnvUrl('VITE_API_OFFLINE_BASE_URL')
+}
+
+function usesDirectApiUrls(): boolean {
+  return Boolean(getConfiguredOnlineUrl() || getConfiguredOfflineUrl())
+}
+
+function getApiBaseUrls(): string[] {
+  const urls: string[] = []
+  const online = getConfiguredOnlineUrl()
+  const offline = getConfiguredOfflineUrl()
+
+  if (online) {
+    urls.push(online)
+  }
+
+  if (offline && offline !== online) {
+    urls.push(offline)
+  }
+
+  return urls
+}
+
+let activeApiBaseUrl: string | null = null
+let lastFailoverBaseUrl: string | null = null
+
+type ApiModeChangeHandler = () => void
+const apiModeChangeHandlers = new Set<ApiModeChangeHandler>()
+
+function notifyApiModeChange() {
+  apiModeChangeHandlers.forEach((handler) => {
+    try {
+      handler()
+    } catch (_error) {
+      // Ignore subscriber failures.
+    }
+  })
+}
+
+export function onApiModeChange(handler: ApiModeChangeHandler): () => void {
+  apiModeChangeHandlers.add(handler)
+  return () => {
+    apiModeChangeHandlers.delete(handler)
+  }
+}
+
+function getTryOrder(): string[] {
+  const baseUrls = getApiBaseUrls()
+
+  if (!usesDirectApiUrls()) {
+    return ['']
+  }
+
+  if (activeApiBaseUrl) {
+    return [activeApiBaseUrl, ...baseUrls.filter((url) => url !== activeApiBaseUrl)]
+  }
+
+  return baseUrls
+}
+
+export function getApiBaseUrl(): string {
+  if (!usesDirectApiUrls()) {
     return ''
   }
 
-  const configured = String(import.meta.env.VITE_API_BASE_URL || '').trim()
-  if (configured) {
-    return normalizeBaseUrl(configured)
+  return activeApiBaseUrl ?? getApiBaseUrls()[0] ?? ''
+}
+
+export function getActiveApiMode(): ApiMode {
+  if (!usesDirectApiUrls()) {
+    return 'proxy'
   }
 
-  // Default to same-origin paths in browser contexts to keep session cookies stable.
-  return ''
+  const active = getApiBaseUrl()
+  const offline = getConfiguredOfflineUrl()
+
+  if (offline && active === offline) {
+    return 'offline'
+  }
+
+  return 'online'
+}
+
+export function resolveAssetUrl(path: string | null | undefined): string | null {
+  if (!path) {
+    return null
+  }
+
+  if (/^https?:\/\//i.test(path) || path.startsWith('blob:') || path.startsWith('data:')) {
+    return path
+  }
+
+  const baseUrl = getApiBaseUrl()
+  if (!baseUrl) {
+    return path.startsWith('/') ? path : `/${path}`
+  }
+
+  return `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`
 }
 
 type UnauthorizedHandler = () => void
@@ -59,16 +155,50 @@ function resolveApiUrl(path: string, baseUrl: string): string {
   return `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`
 }
 
+function isNetworkFailure(error: unknown): boolean {
+  if (!(error instanceof TypeError)) {
+    return false
+  }
+
+  const message = String(error.message || '').toLowerCase()
+  return message.includes('failed to fetch') || message.includes('networkerror') || message.includes('load failed')
+}
+
+function markSuccessfulBase(baseUrl: string) {
+  const previousMode = getActiveApiMode()
+  activeApiBaseUrl = baseUrl || null
+  lastFailoverBaseUrl = null
+
+  if (getActiveApiMode() !== previousMode) {
+    notifyApiModeChange()
+  }
+}
+
+function markFailover(fromBaseUrl: string, toBaseUrl: string) {
+  if (activeApiBaseUrl === fromBaseUrl) {
+    activeApiBaseUrl = null
+  }
+
+  if (lastFailoverBaseUrl !== toBaseUrl) {
+    lastFailoverBaseUrl = toBaseUrl
+    notifyUnauthorized()
+    notifyApiModeChange()
+  }
+}
+
 export type ApiFetchInit = RequestInit & {
   audit?: AuditMeta
 }
 
-export async function apiFetch<T>(input: string, init: ApiFetchInit = {}): Promise<T> {
+async function executeApiFetch<T>(
+  input: string,
+  init: ApiFetchInit,
+  baseUrl: string,
+): Promise<T> {
   const { audit, ...requestInit } = init
   const headers = new Headers(requestInit.headers || {})
   const isFormData = typeof FormData !== 'undefined' && requestInit.body instanceof FormData
-  const apiBaseUrl = getApiBaseUrl()
-  const requestUrl = resolveApiUrl(input, apiBaseUrl)
+  const requestUrl = resolveApiUrl(input, baseUrl)
 
   if (requestInit.body && !isFormData && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
@@ -108,5 +238,33 @@ export async function apiFetch<T>(input: string, init: ApiFetchInit = {}): Promi
     throw error
   }
 
+  markSuccessfulBase(baseUrl)
   return payload as T
+}
+
+export async function apiFetch<T>(input: string, init: ApiFetchInit = {}): Promise<T> {
+  const tryOrder = getTryOrder()
+  let lastNetworkError: unknown = null
+
+  for (let index = 0; index < tryOrder.length; index += 1) {
+    const baseUrl = tryOrder[index]
+
+    try {
+      return await executeApiFetch<T>(input, init, baseUrl)
+    } catch (error) {
+      if (!isNetworkFailure(error)) {
+        throw error
+      }
+
+      lastNetworkError = error
+
+      const nextBaseUrl = tryOrder[index + 1]
+      if (nextBaseUrl !== undefined) {
+        markFailover(baseUrl, nextBaseUrl)
+        continue
+      }
+    }
+  }
+
+  throw lastNetworkError instanceof Error ? lastNetworkError : new Error('Unable to reach the API server.')
 }
