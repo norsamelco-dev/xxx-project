@@ -11,8 +11,18 @@ const priceVatModeOptions = [
   { value: 'INCLUSIVE', label: 'VAT Inclusive' },
   { value: 'EXCLUSIVE', label: 'VAT Exclusive' },
 ] as const
-const allowedLogoMimeTypes = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp'])
+const allowedLogoMimeTypes = new Set(['image/png'])
+const allowedLogoAccept = 'image/png,.png'
+const allowedLogoHint = 'PNG only. Max size: 2 MB.'
 const maxLogoBytes = 2 * 1024 * 1024
+
+function isPngLogoFile(file: File) {
+  if (allowedLogoMimeTypes.has(file.type)) {
+    return true
+  }
+
+  return /\.png$/i.test(file.name)
+}
 
 type PrintLogoAlign = 'left' | 'center' | 'right'
 
@@ -118,6 +128,58 @@ function mapResponseToForm(data: Record<string, unknown> | null): ReceiptHeading
   }
 }
 
+function buildReceiptHeadingFormData(
+  form: ReceiptHeading,
+  files?: { businessLogoFile?: File | null; developerLogoFile?: File | null },
+): FormData {
+  const payload = new FormData()
+  payload.append('id', String(form.id || ''))
+  payload.append('busi_name', form.busi_name)
+  payload.append('busi_addr', form.busi_addr)
+  payload.append('busi_owner', form.busi_owner)
+  payload.append('busi_vat_type', form.busi_vat_type)
+  payload.append('busi_tin', form.busi_tin)
+  payload.append('vat_rate', form.vat_rate.trim() === '' ? '' : String(Number(form.vat_rate)))
+  payload.append('price_vat_mode', form.busi_vat_type === 'VAT-EXEMPT TIN' ? 'INCLUSIVE' : form.price_vat_mode)
+  payload.append('developer', form.developer)
+  payload.append('accreditation_no', form.accreditation_no)
+  payload.append('valid_start', form.valid_start)
+  payload.append('valid_until', form.valid_until)
+  payload.append('softwareversion', form.softwareversion)
+  payload.append('contactdetail', form.contactdetail)
+  payload.append('business_logo_path', form.business_logo_path)
+  payload.append('developer_logo_path', form.developer_logo_path)
+  payload.append('print_logo_width', String(normalizePrintLogoWidth(form.print_logo_width)))
+  payload.append('print_logo_align', form.print_logo_align)
+  payload.append('print_logo_enabled', form.print_logo_enabled ? '1' : '0')
+
+  if (files?.businessLogoFile) {
+    payload.append('business_logo', files.businessLogoFile)
+  }
+
+  if (files?.developerLogoFile) {
+    payload.append('developer_logo', files.developerLogoFile)
+  }
+
+  return payload
+}
+
+function getLogoDropzoneStatus(isUploading: boolean, file: File | null, savedPath: string) {
+  if (isUploading) {
+    return 'Uploading...'
+  }
+
+  if (file) {
+    return file.name
+  }
+
+  if (savedPath) {
+    return 'Logo applied'
+  }
+
+  return 'No file selected'
+}
+
 function ReceiptHeadingPage() {
   usePageVisitAudit(AUDIT_PAGES.RECEIPT_HEADING)
   const [form, setForm] = useState<ReceiptHeading>({ ...initialForm })
@@ -130,6 +192,8 @@ function ReceiptHeadingPage() {
   const [lastVatRegRate, setLastVatRegRate] = useState('')
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isUploadingBusinessLogo, setIsUploadingBusinessLogo] = useState(false)
+  const [isUploadingDeveloperLogo, setIsUploadingDeveloperLogo] = useState(false)
   const [isPrintLogoModalOpen, setIsPrintLogoModalOpen] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -190,8 +254,8 @@ function ReceiptHeadingPage() {
   }
 
   function validateLogoFile(file: File) {
-    if (!allowedLogoMimeTypes.has(file.type)) {
-      setError('Logo must be PNG, JPG, JPEG, or WEBP.')
+    if (!isPngLogoFile(file)) {
+      setError('Logo must be a PNG file.')
       return false
     }
 
@@ -214,7 +278,9 @@ function ReceiptHeadingPage() {
     }
 
     setError('')
+    setSuccess('')
     setBusinessLogoFile(file)
+    void uploadLogo('business', file)
   }
 
   function handleDeveloperLogoSelected(file: File | null) {
@@ -228,7 +294,54 @@ function ReceiptHeadingPage() {
     }
 
     setError('')
+    setSuccess('')
     setDeveloperLogoFile(file)
+    void uploadLogo('developer', file)
+  }
+
+  async function uploadLogo(kind: 'business' | 'developer', file: File) {
+    const label = kind === 'business' ? 'Business' : 'Developer'
+    const setUploading = kind === 'business' ? setIsUploadingBusinessLogo : setIsUploadingDeveloperLogo
+    const setLogoFile = kind === 'business' ? setBusinessLogoFile : setDeveloperLogoFile
+    const files =
+      kind === 'business' ? { businessLogoFile: file } : { developerLogoFile: file }
+    const auditAction = kind === 'business' ? 'UPDATE_BUSINESS_LOGO' : 'UPDATE_DEVELOPER_LOGO'
+
+    try {
+      setUploading(true)
+      setError('')
+
+      const payload = buildReceiptHeadingFormData(form, files)
+      const response = await apiFetch<{ data: Record<string, unknown>; message: string }>('/api/receipt-heading', {
+        method: 'PUT',
+        body: payload,
+        audit: {
+          page: AUDIT_PAGES.RECEIPT_HEADING,
+          action: auditAction,
+          description: buildAuditDescription(
+            AUDIT_PAGES.RECEIPT_HEADING,
+            `Updated ${label.toLowerCase()} logo for "${form.busi_name.trim() || 'business profile'}".`,
+          ),
+          tableName: 'receipt_heading',
+        },
+      })
+
+      const nextForm = mapResponseToForm(response.data)
+      setForm(nextForm)
+      setLogoFile(null)
+      if (kind === 'business' && businessLogoInputRef.current) {
+        businessLogoInputRef.current.value = ''
+      }
+      if (kind === 'developer' && developerLogoInputRef.current) {
+        developerLogoInputRef.current.value = ''
+      }
+      setSuccess(response.message || `${label} logo updated.`)
+    } catch (uploadError) {
+      setLogoFile(null)
+      setError(uploadError instanceof Error ? uploadError.message : `Unable to upload ${label.toLowerCase()} logo.`)
+    } finally {
+      setUploading(false)
+    }
   }
 
   function handleChange(event: ChangeEvent<HTMLInputElement>) {
@@ -315,34 +428,7 @@ function ReceiptHeadingPage() {
     try {
       setIsSaving(true)
 
-      const payload = new FormData()
-      payload.append('id', String(form.id || ''))
-      payload.append('busi_name', form.busi_name)
-      payload.append('busi_addr', form.busi_addr)
-      payload.append('busi_owner', form.busi_owner)
-      payload.append('busi_vat_type', form.busi_vat_type)
-      payload.append('busi_tin', form.busi_tin)
-      payload.append('vat_rate', form.vat_rate.trim() === '' ? '' : String(Number(form.vat_rate)))
-      payload.append('price_vat_mode', form.busi_vat_type === 'VAT-EXEMPT TIN' ? 'INCLUSIVE' : form.price_vat_mode)
-      payload.append('developer', form.developer)
-      payload.append('accreditation_no', form.accreditation_no)
-      payload.append('valid_start', form.valid_start)
-      payload.append('valid_until', form.valid_until)
-      payload.append('softwareversion', form.softwareversion)
-      payload.append('contactdetail', form.contactdetail)
-      payload.append('business_logo_path', form.business_logo_path)
-      payload.append('developer_logo_path', form.developer_logo_path)
-      payload.append('print_logo_width', String(normalizePrintLogoWidth(form.print_logo_width)))
-      payload.append('print_logo_align', form.print_logo_align)
-      payload.append('print_logo_enabled', form.print_logo_enabled ? '1' : '0')
-
-      if (businessLogoFile) {
-        payload.append('business_logo', businessLogoFile)
-      }
-
-      if (developerLogoFile) {
-        payload.append('developer_logo', developerLogoFile)
-      }
+      const payload = buildReceiptHeadingFormData(form, { businessLogoFile, developerLogoFile })
 
       const response = await apiFetch<{ data: Record<string, unknown>; message: string }>('/api/receipt-heading', {
         method: 'PUT',
@@ -404,7 +490,9 @@ function ReceiptHeadingPage() {
               <div className="field field--full receipt-logo-field">
                 <label htmlFor="business_logo">Business logo</label>
                 <div className="receipt-logo-row">
-                  <div className="receipt-logo-preview-wrap">
+                  <div
+                    className={`receipt-logo-preview-wrap${isUploadingBusinessLogo ? ' receipt-logo-preview-wrap--uploading' : ''}`}
+                  >
                     {businessLogoPreview || form.business_logo_path ? (
                       <img
                         src={businessLogoPreview || resolveAssetUrl(form.business_logo_path) || ''}
@@ -422,25 +510,41 @@ function ReceiptHeadingPage() {
                       id="business_logo"
                       name="business_logo"
                       type="file"
-                      accept="image/png,image/jpeg,image/jpg,image/webp"
+                      accept={allowedLogoAccept}
                       onChange={handleBusinessLogoChange}
+                      disabled={isUploadingBusinessLogo || isSaving}
                     />
                     <div
-                      className={`receipt-logo-dropzone${isBusinessLogoDragOver ? ' is-drag-over' : ''}`}
+                      className={`receipt-logo-dropzone${isBusinessLogoDragOver ? ' is-drag-over' : ''}${isUploadingBusinessLogo ? ' is-uploading' : ''}`}
                       role="button"
-                      tabIndex={0}
+                      tabIndex={isUploadingBusinessLogo ? -1 : 0}
+                      aria-disabled={isUploadingBusinessLogo}
                       aria-label="Drag and drop business logo or press Enter to browse"
-                      onClick={() => businessLogoInputRef.current?.click()}
+                      onClick={() => {
+                        if (!isUploadingBusinessLogo) {
+                          businessLogoInputRef.current?.click()
+                        }
+                      }}
                       onKeyDown={(event) => handleLogoDropzoneKeyDown(event, businessLogoInputRef)}
-                      onDrop={(event) => handleLogoDrop(event, setIsBusinessLogoDragOver, handleBusinessLogoSelected)}
-                      onDragOver={(event) => handleLogoDragOver(event, setIsBusinessLogoDragOver)}
+                      onDrop={(event) => {
+                        if (!isUploadingBusinessLogo) {
+                          handleLogoDrop(event, setIsBusinessLogoDragOver, handleBusinessLogoSelected)
+                        }
+                      }}
+                      onDragOver={(event) => {
+                        if (!isUploadingBusinessLogo) {
+                          handleLogoDragOver(event, setIsBusinessLogoDragOver)
+                        }
+                      }}
                       onDragLeave={() => handleLogoDragLeave(setIsBusinessLogoDragOver)}
                     >
                       <strong>Drag and drop logo here</strong>
                       <span>or click to browse</span>
-                      <small>{businessLogoFile ? businessLogoFile.name : 'No new file selected'}</small>
+                      <small>
+                        {getLogoDropzoneStatus(isUploadingBusinessLogo, businessLogoFile, form.business_logo_path)}
+                      </small>
                     </div>
-                    <p className="field-hint">Accepted: png, jpg, jpeg, webp. Max size: 2 MB.</p>
+                    <p className="field-hint">Accepted: {allowedLogoHint}</p>
                   </div>
                 </div>
               </div>
@@ -546,7 +650,9 @@ function ReceiptHeadingPage() {
               <div className="field field--full receipt-logo-field">
                 <label htmlFor="developer_logo">Developer logo</label>
                 <div className="receipt-logo-row">
-                  <div className="receipt-logo-preview-wrap">
+                  <div
+                    className={`receipt-logo-preview-wrap${isUploadingDeveloperLogo ? ' receipt-logo-preview-wrap--uploading' : ''}`}
+                  >
                     {developerLogoPreview || form.developer_logo_path ? (
                       <img
                         src={developerLogoPreview || resolveAssetUrl(form.developer_logo_path) || ''}
@@ -564,25 +670,41 @@ function ReceiptHeadingPage() {
                       id="developer_logo"
                       name="developer_logo"
                       type="file"
-                      accept="image/png,image/jpeg,image/jpg,image/webp"
+                      accept={allowedLogoAccept}
                       onChange={handleDeveloperLogoChange}
+                      disabled={isUploadingDeveloperLogo || isSaving}
                     />
                     <div
-                      className={`receipt-logo-dropzone${isDeveloperLogoDragOver ? ' is-drag-over' : ''}`}
+                      className={`receipt-logo-dropzone${isDeveloperLogoDragOver ? ' is-drag-over' : ''}${isUploadingDeveloperLogo ? ' is-uploading' : ''}`}
                       role="button"
-                      tabIndex={0}
+                      tabIndex={isUploadingDeveloperLogo ? -1 : 0}
+                      aria-disabled={isUploadingDeveloperLogo}
                       aria-label="Drag and drop developer logo or press Enter to browse"
-                      onClick={() => developerLogoInputRef.current?.click()}
+                      onClick={() => {
+                        if (!isUploadingDeveloperLogo) {
+                          developerLogoInputRef.current?.click()
+                        }
+                      }}
                       onKeyDown={(event) => handleLogoDropzoneKeyDown(event, developerLogoInputRef)}
-                      onDrop={(event) => handleLogoDrop(event, setIsDeveloperLogoDragOver, handleDeveloperLogoSelected)}
-                      onDragOver={(event) => handleLogoDragOver(event, setIsDeveloperLogoDragOver)}
+                      onDrop={(event) => {
+                        if (!isUploadingDeveloperLogo) {
+                          handleLogoDrop(event, setIsDeveloperLogoDragOver, handleDeveloperLogoSelected)
+                        }
+                      }}
+                      onDragOver={(event) => {
+                        if (!isUploadingDeveloperLogo) {
+                          handleLogoDragOver(event, setIsDeveloperLogoDragOver)
+                        }
+                      }}
                       onDragLeave={() => handleLogoDragLeave(setIsDeveloperLogoDragOver)}
                     >
                       <strong>Drag and drop logo here</strong>
                       <span>or click to browse</span>
-                      <small>{developerLogoFile ? developerLogoFile.name : 'No new file selected'}</small>
+                      <small>
+                        {getLogoDropzoneStatus(isUploadingDeveloperLogo, developerLogoFile, form.developer_logo_path)}
+                      </small>
                     </div>
-                    <p className="field-hint">Accepted: png, jpg, jpeg, webp. Max size: 2 MB.</p>
+                    <p className="field-hint">Accepted: {allowedLogoHint}</p>
                   </div>
                 </div>
               </div>
@@ -623,7 +745,7 @@ function ReceiptHeadingPage() {
           <ThemedButton type="button" variant="secondary" onClick={() => void loadReceiptHeading()} disabled={isSaving}>
             <ButtonLabel icon="reload">Reload</ButtonLabel>
           </ThemedButton>
-          <ThemedButton type="submit" variant="primary" disabled={isSaving || isLoading}>
+          <ThemedButton type="submit" variant="primary" disabled={isSaving || isLoading || isUploadingBusinessLogo || isUploadingDeveloperLogo}>
             <ButtonLabel icon="save">{isSaving ? 'Saving...' : 'Save profile settings'}</ButtonLabel>
           </ThemedButton>
         </div>

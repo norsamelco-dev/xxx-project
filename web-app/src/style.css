@@ -3546,6 +3546,12 @@ a {
   outline-offset: 2px;
 }
 
+.receipt-logo-dropzone.is-uploading {
+  opacity: 0.72;
+  cursor: wait;
+  pointer-events: none;
+}
+
 .receipt-logo-preview-wrap {
   border-radius: 14px;
   border: 1px solid var(--line);
@@ -3555,6 +3561,10 @@ a {
   min-height: 120px;
   display: grid;
   place-items: center;
+}
+
+.receipt-logo-preview-wrap--uploading {
+  opacity: 0.72;
 }
 
 .receipt-logo-preview {

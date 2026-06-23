@@ -9,7 +9,11 @@ const { findBranchByCode, getBranchById } = require('../services/branchService')
 
 const router = express.Router();
 const logosDir = path.resolve(__dirname, '..', 'api', 'logos');
-const allowedMimeTypes = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp']);
+const allowedLogoMimeType = 'image/png';
+
+function isPngLogoUpload(file) {
+  return file.mimetype === allowedLogoMimeType || /\.png$/i.test(String(file.originalname || ''));
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -17,8 +21,8 @@ const upload = multer({
     fileSize: 2 * 1024 * 1024,
   },
   fileFilter: (_request, file, callback) => {
-    if (!allowedMimeTypes.has(file.mimetype)) {
-      const error = new Error('Only png, jpg, jpeg, and webp files are allowed.');
+    if (!isPngLogoUpload(file)) {
+      const error = new Error('Only PNG files are allowed.');
       error.statusCode = 400;
       callback(error);
       return;
@@ -34,16 +38,8 @@ function ensureLogosDirectory() {
   }
 }
 
-function getExtensionByMimeType(mimeType) {
-  if (mimeType === 'image/png') {
-    return '.png';
-  }
-
-  if (mimeType === 'image/webp') {
-    return '.webp';
-  }
-
-  return '.jpg';
+function getExtensionByMimeType(_mimeType) {
+  return '.png';
 }
 
 function saveLogoFile(file, prefix) {
