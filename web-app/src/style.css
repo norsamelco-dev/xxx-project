@@ -201,6 +201,35 @@ a {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.sidebar-footer-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sidebar-api-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.sidebar-api-avatar--online {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.28);
+}
+
+.sidebar-api-avatar--offline {
+  background: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.28);
+}
+
 .sidebar-logout {
   min-height: 44px;
   border: 0;

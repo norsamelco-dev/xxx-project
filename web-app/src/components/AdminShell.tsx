@@ -242,9 +242,18 @@ function AdminShell({ title, description, children, actions, hideTopbar = false 
         </nav>
 
         <div className="sidebar-footer">
-          <div>
-            <strong>{user?.fullName || user?.username || 'Signed in user'}</strong>
-            <span>{user?.role || 'User'}</span>
+          <div className="sidebar-footer-user">
+            <span
+              className={`sidebar-api-avatar ${apiMode === 'offline' ? 'sidebar-api-avatar--offline' : 'sidebar-api-avatar--online'}`}
+              title={apiMode === 'offline' ? 'Using offline API' : 'Using online API'}
+              aria-label={apiMode === 'offline' ? 'Connected to offline API' : 'Connected to online API'}
+            >
+              {(user?.fullName || user?.username || 'U').charAt(0).toUpperCase()}
+            </span>
+            <div>
+              <strong>{user?.fullName || user?.username || 'Signed in user'}</strong>
+              <span>{user?.role || 'User'}</span>
+            </div>
           </div>
           <button
             className="sidebar-settings"

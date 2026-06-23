@@ -20,6 +20,10 @@ function getConfiguredOfflineUrl(): string {
 }
 
 function usesDirectApiUrls(): boolean {
+  if (import.meta.env.DEV) {
+    return false
+  }
+
   return Boolean(getConfiguredOnlineUrl() || getConfiguredOfflineUrl())
 }
 
@@ -41,6 +45,7 @@ function getApiBaseUrls(): string[] {
 
 let activeApiBaseUrl: string | null = null
 let lastFailoverBaseUrl: string | null = null
+let devProxyTarget: 'online' | 'offline' | null = null
 
 type ApiModeChangeHandler = () => void
 const apiModeChangeHandlers = new Set<ApiModeChangeHandler>()
@@ -85,6 +90,18 @@ export function getApiBaseUrl(): string {
 }
 
 export function getActiveApiMode(): ApiMode {
+  if (import.meta.env.DEV) {
+    if (devProxyTarget === 'offline') {
+      return 'offline'
+    }
+
+    if (devProxyTarget === 'online') {
+      return 'online'
+    }
+
+    return 'proxy'
+  }
+
   if (!usesDirectApiUrls()) {
     return 'proxy'
   }
@@ -174,6 +191,36 @@ function markSuccessfulBase(baseUrl: string) {
   }
 }
 
+function markDevProxyTarget(response: Response) {
+  if (!import.meta.env.DEV) {
+    return
+  }
+
+  const header = response.headers.get('x-pos-api-target')
+  if (header !== 'online' && header !== 'offline') {
+    return
+  }
+
+  const previous = devProxyTarget
+  devProxyTarget = header
+
+  if (previous !== header) {
+    notifyApiModeChange()
+  }
+}
+
+function shouldNotifyUnauthorized(path: string, status: number): boolean {
+  if (status !== 401) {
+    return false
+  }
+
+  if (path === '/api/auth/login' || path === '/api/auth/me') {
+    return false
+  }
+
+  return true
+}
+
 function markFailover(fromBaseUrl: string, toBaseUrl: string) {
   if (activeApiBaseUrl === fromBaseUrl) {
     activeApiBaseUrl = null
@@ -222,6 +269,8 @@ async function executeApiFetch<T>(
     credentials: 'include',
   })
 
+  markDevProxyTarget(response)
+
   const text = await response.text()
   const payload = text ? JSON.parse(text) : null
 
@@ -232,7 +281,7 @@ async function executeApiFetch<T>(
       Object.assign(error, payload)
     }
     error.status = response.status
-    if (response.status === 401 && input !== '/api/auth/login') {
+    if (shouldNotifyUnauthorized(input, response.status)) {
       notifyUnauthorized()
     }
     throw error

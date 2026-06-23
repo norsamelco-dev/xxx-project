@@ -28,11 +28,30 @@ Upload paths for logos and product images are typically under `api-server/upload
 
 ### API failover
 
-When **either** online or offline URL is set, `apiFetch` tries the online URL first. On a network failure (no HTTP response), it retries against the offline URL and sticks to whichever base last succeeded.
+**Development (`npm run dev`):**
 
-- If **both** online and offline are empty in dev, Vite proxies `/api` to `http://localhost:5000` (same-origin).
+- Browser requests always go to same-origin `/api` on `localhost:5173` so session cookies work.
+- `VITE_API_ONLINE_BASE_URL` and `VITE_API_OFFLINE_BASE_URL` configure the **Vite dev proxy targets**, not direct browser URLs.
+- The proxy tries online first; on connection failure (`ECONNREFUSED`, `ETIMEDOUT`, etc.) it retries offline.
+- If both env URLs are empty, the proxy falls back to `http://localhost:5000`.
+
+**Production build (`npm run build`):**
+
+- `apiFetch` calls the configured URLs directly from the browser.
+- Online is tried first; on network failure it retries offline and sticks to whichever base last succeeded.
+
+**General notes:**
+
 - Sessions are per host; users must sign in again after failover switches to a different API origin.
 - Online and offline APIs should use the same database for consistent data.
+- Production cross-subdomain hosting (`pos.lindalim.shop` → `pos-api.lindalim.shop`) requires API cookie settings: `SESSION_COOKIE_SAMESITE=none`, `SESSION_COOKIE_SECURE=true`, `TRUST_PROXY=true`.
+
+Development example:
+
+```env
+VITE_API_ONLINE_BASE_URL=https://pos-api.lindalim.shop
+VITE_API_OFFLINE_BASE_URL=http://127.0.0.1:5000
+```
 
 Production build example:
 
