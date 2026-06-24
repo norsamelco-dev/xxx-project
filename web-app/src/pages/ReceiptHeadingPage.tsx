@@ -275,7 +275,7 @@ function ReceiptHeadingPage() {
 
   return (
     <AdminShell
-      title="Business Profile Settings"
+      title="Developer Information"
       description="Manage developer and receipt print settings for this branch."
       hideTopbar
     >
@@ -287,7 +287,7 @@ function ReceiptHeadingPage() {
         <article className="panel settings-panel">
           <div className="audit-card-header">
             <div className="audit-card-header__intro">
-              <p className="admin-breadcrumb">Dashboard / Business Profile Settings</p>
+              <p className="admin-breadcrumb">Dashboard / Developer Information</p>
               <h1 className="audit-card-title">Developer &amp; Receipt Settings</h1>
               <p className="audit-card-description">
                 Business profile fields are managed per branch on the Branches page. Configure developer compliance

@@ -55,7 +55,7 @@ const navigationSections = [
       { to: '/sales-report', label: 'Sales Report', accessKey: 'salesReport' },
       { to: '/branches', label: 'Branches', accessKey: 'branches' },
       { to: '/users', label: 'Users', accessKey: 'users' },
-      { to: '/receipt-heading', label: 'Business Profile Settings', accessKey: 'receiptHeading' },
+      { to: '/receipt-heading', label: 'Developer Information', accessKey: 'receiptHeading' },
       { to: '/machine-terminal-registration', label: 'Machine / Terminal Registration', accessKey: 'machineTerminalRegistration' },
     ],
   },
