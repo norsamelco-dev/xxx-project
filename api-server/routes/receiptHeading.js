@@ -1,64 +1,11 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
-const multer = require('multer');
 const requireAuth = require('../middleware/requireAuth');
 const requireBranchContext = require('../middleware/requireBranchContext');
 const { getReceiptHeading, saveReceiptHeading } = require('../services/receiptHeadingService');
-const { findBranchByCode, getBranchById } = require('../services/branchService');
+const { resolvePublicBranchId } = require('../utils/resolvePublicBranch');
+const { logoUpload, saveLogoFile, handleLogoUploadError } = require('../utils/logoUpload');
 
 const router = express.Router();
-const logosDir = path.resolve(__dirname, '..', 'api', 'logos');
-const allowedLogoMimeType = 'image/png';
-
-function isPngLogoUpload(file) {
-  return file.mimetype === allowedLogoMimeType || /\.png$/i.test(String(file.originalname || ''));
-}
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 2 * 1024 * 1024,
-  },
-  fileFilter: (_request, file, callback) => {
-    if (!isPngLogoUpload(file)) {
-      const error = new Error('Only PNG files are allowed.');
-      error.statusCode = 400;
-      callback(error);
-      return;
-    }
-
-    callback(null, true);
-  },
-});
-
-function ensureLogosDirectory() {
-  if (!fs.existsSync(logosDir)) {
-    fs.mkdirSync(logosDir, { recursive: true });
-  }
-}
-
-function getExtensionByMimeType(_mimeType) {
-  return '.png';
-}
-
-function saveLogoFile(file, prefix) {
-  ensureLogosDirectory();
-
-  const files = fs.readdirSync(logosDir);
-  for (const entry of files) {
-    if (entry.startsWith(`${prefix}.`)) {
-      fs.unlinkSync(path.join(logosDir, entry));
-    }
-  }
-
-  const extension = getExtensionByMimeType(file.mimetype);
-  const fileName = `${prefix}${extension}`;
-  const filePath = path.join(logosDir, fileName);
-  fs.writeFileSync(filePath, file.buffer);
-
-  return `/api/logos/${fileName}`;
-}
 
 function toPublicReceiptHeading(data) {
   if (!data) {
@@ -89,24 +36,8 @@ function toPublicReceiptHeading(data) {
 
 router.get('/public', async (request, response) => {
   try {
-    let branchId = null;
     const branchCode = String(request.query.branch_code || '').trim();
-
-    if (branchCode) {
-      const branch = await findBranchByCode(branchCode);
-      branchId = branch?.branch_id ?? null;
-    }
-
-    if (!branchId) {
-      const mainBranch = await findBranchByCode('MAIN');
-      branchId = mainBranch?.branch_id ?? null;
-    }
-
-    if (!branchId) {
-      const fallback = await getBranchById(1);
-      branchId = fallback?.branch_id ?? 1;
-    }
-
+    const branchId = await resolvePublicBranchId(branchCode);
     const data = await getReceiptHeading(branchId);
 
     response.json({
@@ -138,50 +69,38 @@ router.get('/', async (request, response) => {
 
 router.put(
   '/',
-  upload.fields([
-    { name: 'business_logo', maxCount: 1 },
-    { name: 'developer_logo', maxCount: 1 },
-  ]),
+  logoUpload.fields([{ name: 'developer_logo', maxCount: 1 }]),
   async (request, response) => {
-  try {
-    const existing = await getReceiptHeading(request.branchId);
-    const files = request.files || {};
-    const businessLogoFile = files.business_logo?.[0] || null;
-    const developerLogoFile = files.developer_logo?.[0] || null;
+    try {
+      const existing = await getReceiptHeading(request.branchId);
+      const files = request.files || {};
+      const developerLogoFile = files.developer_logo?.[0] || null;
 
-    const payload = {
-      ...(request.body || {}),
-      id: request.body?.id || existing?.id || null,
-      business_logo_path: existing?.business_logo_path || null,
-      developer_logo_path: existing?.developer_logo_path || null,
-    };
+      const payload = {
+        ...(request.body || {}),
+        id: request.body?.id || existing?.id || null,
+        developer_logo_path: existing?.developer_logo_path || null,
+      };
 
-    if (businessLogoFile) {
-      payload.business_logo_path = saveLogoFile(businessLogoFile, 'business-logo');
-    }
+      if (developerLogoFile) {
+        payload.developer_logo_path = saveLogoFile(developerLogoFile, 'developer-logo');
+      }
 
-    if (developerLogoFile) {
-      payload.developer_logo_path = saveLogoFile(developerLogoFile, 'developer-logo');
-    }
+      const data = await saveReceiptHeading(request.branchId, payload);
 
-    const data = await saveReceiptHeading(request.branchId, payload);
-
-    response.json({
-      data,
-      message: 'Receipt heading updated successfully.',
-    });
-  } catch (error) {
-    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
-      response.status(400).json({
-        error: 'Logo file must be 2 MB or less.',
+      response.json({
+        data,
+        message: 'Receipt heading updated successfully.',
       });
-      return;
-    }
+    } catch (error) {
+      if (handleLogoUploadError(error, response)) {
+        return undefined;
+      }
 
-    response.status(error.statusCode || 500).json({
-      error: error.message,
-    });
-  }
+      response.status(error.statusCode || 500).json({
+        error: error.message,
+      });
+    }
   },
 );
 

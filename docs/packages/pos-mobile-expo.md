@@ -40,6 +40,10 @@ pos-mobile-expo/
 - Base URL from `EXPO_PUBLIC_POS_API_URL` with local fallback
 - Bearer token on authenticated routes
 - POS routes under `/api/pos/*`
+- **Business profile** (name, logo, VAT, TIN) from `GET /api/branches/public?branch_code=...` (reads `branches` table)
+- **Developer / receipt print settings** from `GET /api/receipt-heading/public`
+- POS merges both via `getPosReceiptContextPublic()` in `services/api/posApi.ts` for receipts, login branding, and VAT mode
+- API connectivity test pings `/api/branches/public`
 
 ## Reports (X/Z)
 

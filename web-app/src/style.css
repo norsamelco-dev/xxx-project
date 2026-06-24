@@ -1999,6 +1999,38 @@ a {
   min-width: 0;
 }
 
+.branch-card__logo {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.branch-form-section-title h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.branch-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+
+.branch-form-grid > .settings-panel {
+  min-width: 0;
+}
+
+.branch-form-modal .form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
 .user-card__title-group .users-avatar {
   width: 42px;
   height: 42px;
@@ -2829,6 +2861,10 @@ a {
   max-height: calc(100vh - 40px);
   overflow-y: auto;
   margin: 0 auto;
+}
+
+.terminal-modal--wide {
+  width: min(760px, calc(100vw - 40px));
 }
 
 .terminal-delete-modal {
@@ -4146,6 +4182,10 @@ a {
   .settings-grid--receipt-profile > .settings-panel {
     grid-row: auto;
     grid-template-rows: none;
+  }
+
+  .branch-form-grid {
+    grid-template-columns: 1fr;
   }
 
   .settings-panel__breadcrumb-spacer,

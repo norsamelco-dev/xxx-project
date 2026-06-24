@@ -19,7 +19,7 @@ import { usePosSession } from '../context/PosSessionContext'
 import { useToast } from '../context/ToastContext'
 import {
   getPosTransactionReceipt,
-  getReceiptHeadingPublic,
+  getPosReceiptContextPublic,
   listPosSalesSeries,
   listPosSalesTransactionItems,
   listPosSalesTransactions,
@@ -337,7 +337,7 @@ export default function SalesTransactionsScreen({ route }: Props) {
 
     try {
       const receipt = await getPosTransactionReceipt(config.terminal_name, orsi)
-      const heading = await getReceiptHeadingPublic(resolveBranchCode(config))
+      const heading = await getPosReceiptContextPublic(resolveBranchCode(config))
       const cashierName = user?.fullName || user?.username || 'Cashier'
       const lines = mapCheckoutLinesToCartLines(receipt.checkout.lines)
       const totals = mapCheckoutTotalsToCartTotals(receipt.checkout.totals)

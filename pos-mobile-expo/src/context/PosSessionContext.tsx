@@ -5,7 +5,7 @@ import type { PriceVatMode } from '../utils/vat'
 import {
   closeSeries,
   createSeries,
-  getReceiptHeadingPublic,
+  getPosReceiptContextPublic,
   getSeriesCloseRequirements,
   getSummary,
   listActiveSeries,
@@ -59,7 +59,7 @@ export function PosSessionProvider({ children }: { children: ReactNode }) {
     let isMounted = true
     const branchCode = resolveBranchCode(config)
 
-    void getReceiptHeadingPublic(branchCode)
+    void getPosReceiptContextPublic(branchCode)
       .then((heading) => {
         if (!isMounted) {
           return

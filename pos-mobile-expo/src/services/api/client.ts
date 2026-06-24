@@ -182,7 +182,7 @@ export function getApiBaseUrlOverrides() {
 }
 
 export async function testApiBaseUrl(url: string): Promise<void> {
-  await axios.get(`${normalizeBaseUrl(url)}/api/receipt-heading/public`, {
+  await axios.get(`${normalizeBaseUrl(url)}/api/branches/public`, {
     timeout: 10000,
   })
 }

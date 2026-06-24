@@ -6,19 +6,21 @@ const {
   columnExists,
   tableExists,
 } = require('../db/ensureBranchSchema');
+const {
+  normalizeBusinessProfilePayload,
+  normalizeText,
+  mapBusinessProfileRow,
+} = require('../utils/businessProfile');
 
 const LOGOS_DIR = path.resolve(__dirname, '..', 'api', 'logos');
 const PRODUCT_IMAGES_DIR = path.resolve(__dirname, '..', 'api', 'product-images');
 const LOGOS_PUBLIC_PREFIX = '/api/logos/';
 const PRODUCT_IMAGES_PUBLIC_PREFIX = '/api/product-images/';
 
-function normalizeText(value) {
-  if (value === undefined || value === null) {
-    return null;
-  }
-  const text = String(value).trim();
-  return text.length ? text : null;
-}
+const BRANCH_SELECT_COLUMNS = `
+  branch_id, branch_code, branch_name, address, is_active, created_at,
+  busi_name, busi_addr, busi_owner, busi_vat_type, busi_tin, vat_rate, price_vat_mode, business_logo_path
+`;
 
 function normalizeBranchCode(value) {
   const code = normalizeText(value);
@@ -60,10 +62,27 @@ function normalizeActiveFlag(value) {
   throw error;
 }
 
+function resolveBusinessProfile(payload, { branchName, address, existing = null, requireName = false }) {
+  const merged = {
+    busi_name: payload.busi_name !== undefined ? payload.busi_name : (existing?.busi_name ?? branchName),
+    busi_addr: payload.busi_addr !== undefined ? payload.busi_addr : (existing?.busi_addr ?? address),
+    busi_owner: payload.busi_owner !== undefined ? payload.busi_owner : existing?.busi_owner,
+    busi_vat_type: payload.busi_vat_type !== undefined ? payload.busi_vat_type : existing?.busi_vat_type,
+    busi_tin: payload.busi_tin !== undefined ? payload.busi_tin : existing?.busi_tin,
+    vat_rate: payload.vat_rate !== undefined ? payload.vat_rate : existing?.vat_rate,
+    price_vat_mode: payload.price_vat_mode !== undefined ? payload.price_vat_mode : existing?.price_vat_mode,
+    business_logo_path:
+      payload.business_logo_path !== undefined ? payload.business_logo_path : existing?.business_logo_path,
+  };
+
+  return normalizeBusinessProfilePayload(merged, { requireName });
+}
+
 function mapBranchRow(row) {
   if (!row) {
     return null;
   }
+
   return {
     branch_id: row.branch_id,
     branch_code: row.branch_code,
@@ -71,12 +90,38 @@ function mapBranchRow(row) {
     address: row.address,
     is_active: row.is_active === 1 || row.is_active === true,
     created_at: row.created_at,
+    ...mapBusinessProfileRow(row),
   };
+}
+
+function toPublicBranchBusinessProfile(branch) {
+  if (!branch) {
+    return null;
+  }
+
+  return {
+    branch_id: branch.branch_id,
+    branch_code: branch.branch_code,
+    branch_name: branch.branch_name,
+    busi_name: branch.busi_name ?? null,
+    busi_addr: branch.busi_addr ?? null,
+    busi_owner: branch.busi_owner ?? null,
+    busi_vat_type: branch.busi_vat_type ?? null,
+    busi_tin: branch.busi_tin ?? null,
+    vat_rate: branch.vat_rate ?? null,
+    price_vat_mode: branch.price_vat_mode ?? 'INCLUSIVE',
+    business_logo_path: branch.business_logo_path ?? null,
+  };
+}
+
+async function getBranchBusinessProfileById(branchId) {
+  const branch = await getBranchById(branchId);
+  return toPublicBranchBusinessProfile(branch);
 }
 
 async function listBranches({ activeOnly = false } = {}) {
   const queryParts = [
-    `SELECT branch_id, branch_code, branch_name, address, is_active, created_at
+    `SELECT ${BRANCH_SELECT_COLUMNS}
      FROM branches`,
   ];
 
@@ -92,7 +137,7 @@ async function listBranches({ activeOnly = false } = {}) {
 
 async function getBranchById(branchId) {
   const [rows] = await getPool().query(
-    `SELECT branch_id, branch_code, branch_name, address, is_active, created_at
+    `SELECT ${BRANCH_SELECT_COLUMNS}
      FROM branches
      WHERE branch_id = ?
      LIMIT 1`,
@@ -103,7 +148,7 @@ async function getBranchById(branchId) {
 
 async function findBranchByCode(branchCode) {
   const [rows] = await getPool().query(
-    `SELECT branch_id, branch_code, branch_name, address, is_active, created_at
+    `SELECT ${BRANCH_SELECT_COLUMNS}
      FROM branches
      WHERE UPPER(branch_code) = UPPER(?)
      LIMIT 1`,
@@ -140,6 +185,27 @@ async function generateBranchCode() {
   throw error;
 }
 
+async function ensureReceiptHeadingRow(branchId) {
+  if (!(await tableExists('receipt_heading'))) {
+    return;
+  }
+
+  const [existingHeading] = await getPool().query(
+    `SELECT id FROM receipt_heading WHERE branch_id = ? LIMIT 1`,
+    [branchId],
+  );
+
+  if (existingHeading.length) {
+    return;
+  }
+
+  await getPool().query(
+    `INSERT INTO receipt_heading (branch_id, developer)
+     VALUES (?, 'N/A')`,
+    [branchId],
+  );
+}
+
 async function createBranch(payload) {
   const branch_code = normalizeText(payload.branch_code)
     ? normalizeBranchCode(payload.branch_code)
@@ -147,6 +213,15 @@ async function createBranch(payload) {
   const branch_name = normalizeBranchName(payload.branch_name);
   const address = normalizeText(payload.address);
   const is_active = normalizeActiveFlag(payload.is_active);
+  const business = resolveBusinessProfile(payload, {
+    branchName: branch_name,
+    address,
+    requireName: false,
+  });
+
+  if (!business.busi_name) {
+    business.busi_name = branch_name;
+  }
 
   const existing = await findBranchByCode(branch_code);
   if (existing) {
@@ -156,26 +231,29 @@ async function createBranch(payload) {
   }
 
   const [result] = await getPool().query(
-    `INSERT INTO branches (branch_code, branch_name, address, is_active)
-     VALUES (?, ?, ?, ?)`,
-    [branch_code, branch_name, address, is_active],
+    `INSERT INTO branches (
+       branch_code, branch_name, address, is_active,
+       busi_name, busi_addr, busi_owner, busi_vat_type, busi_tin, vat_rate, price_vat_mode, business_logo_path
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      branch_code,
+      branch_name,
+      address,
+      is_active,
+      business.busi_name,
+      business.busi_addr,
+      business.busi_owner,
+      business.busi_vat_type,
+      business.busi_tin,
+      business.vat_rate ?? 12,
+      business.price_vat_mode,
+      business.business_logo_path,
+    ],
   );
 
   const branchId = result.insertId;
-
-  if (await tableExists('receipt_heading')) {
-    const [existingHeading] = await getPool().query(
-      `SELECT id FROM receipt_heading WHERE branch_id = ? LIMIT 1`,
-      [branchId],
-    );
-    if (!existingHeading.length) {
-      await getPool().query(
-        `INSERT INTO receipt_heading (branch_id, busi_name, busi_addr, vat_rate, price_vat_mode)
-         VALUES (?, ?, ?, 12, 'INCLUSIVE')`,
-        [branchId, branch_name, address],
-      );
-    }
-  }
+  await ensureReceiptHeadingRow(branchId);
 
   return getBranchById(branchId);
 }
@@ -196,6 +274,13 @@ async function updateBranch(branchId, payload) {
   const is_active = payload.is_active !== undefined
     ? normalizeActiveFlag(payload.is_active)
     : (existing.is_active ? 1 : 0);
+
+  const business = resolveBusinessProfile(payload, {
+    branchName: branch_name,
+    address,
+    existing,
+    requireName: true,
+  });
 
   if (branch_code.toUpperCase() !== existing.branch_code.toUpperCase()) {
     const conflict = await findBranchByCode(branch_code);
@@ -224,9 +309,34 @@ async function updateBranch(branchId, payload) {
 
   await getPool().query(
     `UPDATE branches
-     SET branch_code = ?, branch_name = ?, address = ?, is_active = ?
+     SET branch_code = ?,
+         branch_name = ?,
+         address = ?,
+         is_active = ?,
+         busi_name = ?,
+         busi_addr = ?,
+         busi_owner = ?,
+         busi_vat_type = ?,
+         busi_tin = ?,
+         vat_rate = ?,
+         price_vat_mode = ?,
+         business_logo_path = ?
      WHERE branch_id = ?`,
-    [branch_code, branch_name, address, is_active, branchId],
+    [
+      branch_code,
+      branch_name,
+      address,
+      is_active,
+      business.busi_name,
+      business.busi_addr,
+      business.busi_owner,
+      business.busi_vat_type,
+      business.busi_tin,
+      business.vat_rate ?? 12,
+      business.price_vat_mode,
+      business.business_logo_path,
+      branchId,
+    ],
   );
 
   return getBranchById(branchId);
@@ -294,22 +404,31 @@ async function collectBranchAssetPaths(branchId, executor = null) {
     }
   }
 
+  if (await columnExists('branches', 'business_logo_path', queryTarget)) {
+    const [branchRows] = await queryTarget.query(
+      `SELECT business_logo_path
+       FROM branches
+       WHERE branch_id = ?
+       LIMIT 1`,
+      [branchId],
+    );
+
+    if (branchRows[0]?.business_logo_path) {
+      receiptLogoPaths.push(branchRows[0].business_logo_path);
+    }
+  }
+
   if (await tableExists('receipt_heading', queryTarget)) {
     const [rows] = await queryTarget.query(
-      `SELECT business_logo_path, developer_logo_path
+      `SELECT developer_logo_path
        FROM receipt_heading
        WHERE branch_id = ?
        LIMIT 1`,
       [branchId],
     );
 
-    if (rows[0]) {
-      if (rows[0].business_logo_path) {
-        receiptLogoPaths.push(rows[0].business_logo_path);
-      }
-      if (rows[0].developer_logo_path) {
-        receiptLogoPaths.push(rows[0].developer_logo_path);
-      }
+    if (rows[0]?.developer_logo_path) {
+      receiptLogoPaths.push(rows[0].developer_logo_path);
     }
   }
 
@@ -317,16 +436,32 @@ async function collectBranchAssetPaths(branchId, executor = null) {
 }
 
 async function isLogoPathReferenced(logoPath) {
-  if (!logoPath || !(await tableExists('receipt_heading'))) {
+  if (!logoPath) {
+    return false;
+  }
+
+  if (await tableExists('branches') && await columnExists('branches', 'business_logo_path')) {
+    const [branchRows] = await getPool().query(
+      `SELECT COUNT(*) AS count
+       FROM branches
+       WHERE business_logo_path = ?`,
+      [logoPath],
+    );
+
+    if (Number(branchRows[0]?.count || 0) > 0) {
+      return true;
+    }
+  }
+
+  if (!(await tableExists('receipt_heading'))) {
     return false;
   }
 
   const [rows] = await getPool().query(
     `SELECT COUNT(*) AS count
      FROM receipt_heading
-     WHERE business_logo_path = ?
-        OR developer_logo_path = ?`,
-    [logoPath, logoPath],
+     WHERE developer_logo_path = ?`,
+    [logoPath],
   );
 
   return Number(rows[0]?.count || 0) > 0;
@@ -449,4 +584,6 @@ module.exports = {
   deleteBranch,
   countBranchScopedRows,
   mapBranchRow,
+  toPublicBranchBusinessProfile,
+  getBranchBusinessProfileById,
 };

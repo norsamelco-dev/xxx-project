@@ -4,7 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import { useAuth } from '../context/AuthContext'
 import { loadConfig, saveConfig } from '../services/config/configStore'
 import { mergeTerminalIntoConfig, resolveBranchCode, formatBranchLabel } from '../services/config/terminalConfig'
-import { getReceiptHeadingPublic, lookupTerminal } from '../services/api/posApi'
+import { getPosReceiptContextPublic, lookupTerminal } from '../services/api/posApi'
 import { usePosSession } from '../context/PosSessionContext'
 import type { RootStackParamList } from '../navigation/types'
 import { commonStyles } from '../styles/common'
@@ -52,7 +52,7 @@ export default function LoginScreen({ navigation }: Props) {
           setRegisteredBranchLabel(formatBranchLabel(config))
         }
 
-        const heading = await getReceiptHeadingPublic(resolveBranchCode(config))
+        const heading = await getPosReceiptContextPublic(resolveBranchCode(config))
         const logoPath = heading?.business_logo_path || heading?.developer_logo_path || null
 
         if (!logoPath) {

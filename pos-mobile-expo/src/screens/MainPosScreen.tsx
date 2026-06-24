@@ -24,7 +24,7 @@ import { useCart } from '../context/CartContext'
 import { usePosSession } from '../context/PosSessionContext'
 import { useToast } from '../context/ToastContext'
 import {
-  getReceiptHeadingPublic,
+  getPosReceiptContextPublic,
   getSummary,
   getXReport,
   lookupProduct,
@@ -259,7 +259,7 @@ export default function MainPosScreen({ navigation }: Props) {
     let isMounted = true
     const branchCode = resolveBranchCode(config)
 
-    void getReceiptHeadingPublic(branchCode)
+    void getPosReceiptContextPublic(branchCode)
       .then((heading) => {
         if (isMounted) {
           setReceiptHeading(heading)
@@ -644,7 +644,7 @@ export default function MainPosScreen({ navigation }: Props) {
       const branchCode = resolveBranchCode(config)
       const [report, heading] = await Promise.all([
         getXReport(config.terminal_name, activeSeriesNo),
-        receiptHeading ? Promise.resolve(receiptHeading) : getReceiptHeadingPublic(branchCode),
+        receiptHeading ? Promise.resolve(receiptHeading) : getPosReceiptContextPublic(branchCode),
       ])
       if (!receiptHeading) {
         setReceiptHeading(heading)
@@ -675,7 +675,7 @@ export default function MainPosScreen({ navigation }: Props) {
     try {
       const data = await runZReport(config.terminal_name, activeSeriesNo)
       await refreshSeries()
-      const heading = receiptHeading ?? (await getReceiptHeadingPublic(resolveBranchCode(config)))
+      const heading = receiptHeading ?? (await getPosReceiptContextPublic(resolveBranchCode(config)))
       if (!receiptHeading) {
         setReceiptHeading(heading)
       }

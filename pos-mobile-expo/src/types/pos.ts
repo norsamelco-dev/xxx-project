@@ -131,6 +131,20 @@ export type CheckoutResult = {
   lines: CheckoutLine[]
 }
 
+export type BranchBusinessProfile = {
+  branch_id: number
+  branch_code: string
+  branch_name: string
+  busi_name: string | null
+  busi_addr: string | null
+  busi_owner: string | null
+  busi_vat_type: string | null
+  busi_tin: string | null
+  vat_rate: number | string | null
+  price_vat_mode: string | null
+  business_logo_path: string | null
+}
+
 export type ReceiptHeading = {
   busi_name: string | null
   busi_addr: string | null

@@ -1,8 +1,10 @@
 const express = require('express');
 const requireAuth = require('../middleware/requireAuth');
 const requireBranchContext = require('../middleware/requireBranchContext');
-const { createBranch, deleteBranch, getBranchById, listBranches, updateBranch } = require('../services/branchService');
+const { createBranch, deleteBranch, getBranchById, getBranchBusinessProfileById, listBranches, updateBranch } = require('../services/branchService');
 const { findUserById, passwordsMatch } = require('../services/userService');
+const { logoUpload, saveBranchBusinessLogoFile, handleLogoUploadError } = require('../utils/logoUpload');
+const { resolvePublicBranchId } = require('../utils/resolvePublicBranch');
 
 const router = express.Router();
 
@@ -51,6 +53,34 @@ async function verifyDeletePasswords(sessionUserId, passwords) {
   });
 }
 
+function buildBranchPayload(body, existing = null) {
+  const payload = { ...(body || {}) };
+
+  if (existing?.business_logo_path && payload.business_logo_path === undefined) {
+    payload.business_logo_path = existing.business_logo_path;
+  }
+
+  return payload;
+}
+
+function applyBusinessLogoUpload(payload, file, branchId) {
+  if (file) {
+    payload.business_logo_path = saveBranchBusinessLogoFile(file, branchId);
+  }
+}
+
+router.get('/public', async (request, response) => {
+  try {
+    const branchCode = String(request.query.branch_code || '').trim();
+    const branchId = await resolvePublicBranchId(branchCode);
+    const data = await getBranchBusinessProfileById(branchId);
+
+    return response.json({ data });
+  } catch (error) {
+    return response.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
 router.get('/', requireAuth, requireBranchContext, async (request, response) => {
   try {
     const branches = await listBranches();
@@ -60,39 +90,73 @@ router.get('/', requireAuth, requireBranchContext, async (request, response) => 
   }
 });
 
-router.post('/', requireAuth, requireBranchContext, async (request, response) => {
-  if (!hasBranchesAccess(request.session.user)) {
-    return response.status(403).json({ error: 'You do not have permission to manage branches.' });
-  }
-
-  try {
-    const branch = await createBranch(request.body || {});
-    return response.status(201).json({ data: branch });
-  } catch (error) {
-    return response.status(error.statusCode || 500).json({ error: error.message });
-  }
-});
-
-router.patch('/:branchId', requireAuth, requireBranchContext, async (request, response) => {
-  if (!hasBranchesAccess(request.session.user)) {
-    return response.status(403).json({ error: 'You do not have permission to manage branches.' });
-  }
-
-  const branchId = Number(request.params.branchId);
-  if (!Number.isInteger(branchId) || branchId <= 0) {
-    return response.status(400).json({ error: 'Invalid branch id.' });
-  }
-
-  try {
-    const branch = await updateBranch(branchId, request.body || {});
-    if (!branch) {
-      return response.status(404).json({ error: 'Branch not found.' });
+router.post(
+  '/',
+  requireAuth,
+  requireBranchContext,
+  logoUpload.single('business_logo'),
+  async (request, response) => {
+    if (!hasBranchesAccess(request.session.user)) {
+      return response.status(403).json({ error: 'You do not have permission to manage branches.' });
     }
-    return response.json({ data: branch });
-  } catch (error) {
-    return response.status(error.statusCode || 500).json({ error: error.message });
-  }
-});
+
+    try {
+      const payload = buildBranchPayload(request.body);
+      const branch = await createBranch(payload);
+
+      if (request.file) {
+        const logoPath = saveBranchBusinessLogoFile(request.file, branch.branch_id);
+        const updated = await updateBranch(branch.branch_id, {
+          ...payload,
+          business_logo_path: logoPath,
+        });
+        return response.status(201).json({ data: updated });
+      }
+
+      return response.status(201).json({ data: branch });
+    } catch (error) {
+      if (handleLogoUploadError(error, response)) {
+        return undefined;
+      }
+      return response.status(error.statusCode || 500).json({ error: error.message });
+    }
+  },
+);
+
+router.patch(
+  '/:branchId',
+  requireAuth,
+  requireBranchContext,
+  logoUpload.single('business_logo'),
+  async (request, response) => {
+    if (!hasBranchesAccess(request.session.user)) {
+      return response.status(403).json({ error: 'You do not have permission to manage branches.' });
+    }
+
+    const branchId = Number(request.params.branchId);
+    if (!Number.isInteger(branchId) || branchId <= 0) {
+      return response.status(400).json({ error: 'Invalid branch id.' });
+    }
+
+    try {
+      const existing = await getBranchById(branchId);
+      if (!existing) {
+        return response.status(404).json({ error: 'Branch not found.' });
+      }
+
+      const payload = buildBranchPayload(request.body, existing);
+      applyBusinessLogoUpload(payload, request.file, branchId);
+
+      const branch = await updateBranch(branchId, payload);
+      return response.json({ data: branch });
+    } catch (error) {
+      if (handleLogoUploadError(error, response)) {
+        return undefined;
+      }
+      return response.status(error.statusCode || 500).json({ error: error.message });
+    }
+  },
+);
 
 router.delete('/:branchId', requireAuth, requireBranchContext, async (request, response) => {
   if (!hasBranchesAccess(request.session.user)) {

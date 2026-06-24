@@ -12,9 +12,9 @@
 
 | Table | Purpose |
 |-------|---------|
-| `branches` | Store locations |
+| `branches` | Store locations (includes per-branch business profile) |
 | `users` | Cashiers and admins (`branch_id`, role, password) |
-| `receipt_heading` | Business profile, VAT mode, logo path per branch |
+| `receipt_heading` | Developer/compliance details and receipt print settings per branch |
 
 ### Terminals
 

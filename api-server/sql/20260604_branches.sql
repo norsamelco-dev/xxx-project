@@ -8,7 +8,15 @@ CREATE TABLE IF NOT EXISTS branches (
   branch_name VARCHAR(100) NOT NULL,
   address     VARCHAR(255) NULL,
   is_active   TINYINT(1)   NOT NULL DEFAULT 1,
-  created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+  created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+  busi_name   VARCHAR(45)  NULL,
+  busi_addr   VARCHAR(200) NULL,
+  busi_owner  VARCHAR(100) NULL,
+  busi_vat_type VARCHAR(45) NULL,
+  busi_tin    VARCHAR(45)  NULL,
+  vat_rate    DECIMAL(5,2) DEFAULT 12.00,
+  price_vat_mode VARCHAR(12) NOT NULL DEFAULT 'INCLUSIVE',
+  business_logo_path VARCHAR(500) NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- After creating branches, seed MAIN from receipt_heading and backfill branch_id on:

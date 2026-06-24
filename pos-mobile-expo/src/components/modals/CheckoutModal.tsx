@@ -17,7 +17,7 @@ import {
   type EwalletProviderId,
   type PaymentCategory,
 } from '../../constants/paymentMethods'
-import { checkout, getReceiptHeadingPublic } from '../../services/api/posApi'
+import { checkout, getPosReceiptContextPublic } from '../../services/api/posApi'
 import { resolveBranchCode } from '../../services/config/terminalConfig'
 import { printSalesReceipt } from '../../services/printer/printerService'
 import { colors, spacing } from '../../styles/theme'
@@ -228,7 +228,7 @@ export default function CheckoutModal({ visible, onClose }: Props) {
 
       if (config.default_printer) {
         try {
-          const heading = await getReceiptHeadingPublic(resolveBranchCode(config))
+          const heading = await getPosReceiptContextPublic(resolveBranchCode(config))
 
           await printSalesReceipt(
             {

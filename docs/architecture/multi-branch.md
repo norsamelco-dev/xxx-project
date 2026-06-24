@@ -11,8 +11,16 @@ Each store location is a **branch**. Operational data (products, stock, sales, u
 | `branch_id` | Primary key |
 | `branch_code` | Auto-generated code (e.g. `BR001`, `BR002`) |
 | `branch_name` | Display name |
-| `address` | Optional address |
+| `address` | Optional branch address |
 | `is_active` | Active flag |
+| `busi_name` | Business name on receipts |
+| `busi_addr` | Business address on receipts |
+| `busi_owner` | Business owner |
+| `busi_vat_type` | VAT registration type |
+| `busi_tin` | Tax identification number |
+| `vat_rate` | VAT rate (e.g. 12.00) |
+| `price_vat_mode` | `INCLUSIVE` or `EXCLUSIVE` |
+| `business_logo_path` | Path to branch business logo |
 
 A default **MAIN** branch is seeded on first bootstrap if none exists.
 
@@ -32,7 +40,7 @@ Unique constraints often include `branch_id` (e.g. `(branch_id, product_barcode)
 
 - Each **user** has `branch_id` — they only see and modify data for that branch (admin users page can filter by branch).
 - Each **terminal** (`terminals_a`) has `branch_id` — POS login validates the machine belongs to the user's branch.
-- **Receipt heading** (business profile) is one row per branch.
+- **Receipt heading** holds developer/compliance and print settings (one row per branch). Business profile fields live on **branches** and are merged into receipt-heading API responses for POS compatibility.
 
 ## Branch deletion
 
@@ -53,5 +61,5 @@ Optional filesystem cleanup removes orphaned product images and receipt logos wh
 ## Web admin implications
 
 - Most pages operate in the context of the logged-in user's branch.
-- **Users** and **Branches** pages support multi-branch administration when the user has access.
+- **Users** and **Branches** pages support multi-branch administration when the user has access. Business profile (name, address, VAT, logo) is edited on the **Branches** page.
 - **DashboardX** and reports filter by branch via the session user.

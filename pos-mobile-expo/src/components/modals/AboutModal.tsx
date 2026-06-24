@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ActivityIndicator, Image, Modal, Pressable, Text, View } from 'react-native'
-import { getReceiptHeadingPublic } from '../../services/api/posApi'
+import { getPosReceiptContextPublic } from '../../services/api/posApi'
 import { getApiBaseUrl } from '../../services/api/client'
 import type { ReceiptHeading } from '../../types/pos'
 import { colors, spacing } from '../../styles/theme'
@@ -35,7 +35,7 @@ export default function AboutModal({ visible, branchCode, onClose }: Props) {
     setIsLoading(true)
     setError('')
 
-    void getReceiptHeadingPublic(branchCode)
+    void getPosReceiptContextPublic(branchCode)
       .then((data) => {
         if (isMounted) {
           setHeading(data)

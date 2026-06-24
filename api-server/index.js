@@ -20,6 +20,7 @@ const posRouter = require('./routes/pos');
 const branchesRouter = require('./routes/branches');
 const localPrintersRouter = require('./routes/localPrinters');
 const { ensureBranchSchema } = require('./db/ensureBranchSchema');
+const { ensureBranchBusinessProfile } = require('./db/ensureBranchBusinessProfile');
 const requireAuth = require('./middleware/requireAuth');
 const auditLogger = require('./middleware/auditLogger');
 const requestLogger = require('./middleware/requestLogger');
@@ -231,7 +232,9 @@ app.listen(port, host, () => {
     console.error('[receipt-heading] Failed to ensure price VAT mode columns:', error.message);
   });
 
-  void ensureBranchSchema().catch((error) => {
-    console.error('[branch-schema] Failed to ensure branch schema:', error.message);
-  });
+  void ensureBranchSchema()
+    .then(() => ensureBranchBusinessProfile())
+    .catch((error) => {
+      console.error('[branch-schema] Failed to ensure branch schema/business profile:', error.message);
+    });
 });

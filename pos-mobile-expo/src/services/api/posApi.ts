@@ -15,7 +15,7 @@ import type {
   SalesSeriesRow,
   SalesTransactionRow,
 } from '../../types/sales'
-import type { ReceiptHeading } from '../../types/pos'
+import type { BranchBusinessProfile, ReceiptHeading } from '../../types/pos'
 
 export type FifoCartLine = {
   id: number
@@ -199,6 +199,52 @@ export async function runZReport(machineName: string, salesSeriesNo: string) {
     sales_series_no: salesSeriesNo,
   })
   return response.data.data
+}
+
+export async function getBranchBusinessProfilePublic(branchCode?: string) {
+  const response = await apiClient.get<{ data: BranchBusinessProfile | null }>('/api/branches/public', {
+    params: branchCode ? { branch_code: branchCode } : {},
+  })
+  return response.data.data
+}
+
+export function mergePosReceiptContext(
+  business: BranchBusinessProfile | null,
+  receiptSettings: ReceiptHeading | null,
+): ReceiptHeading | null {
+  if (!business && !receiptSettings) {
+    return null
+  }
+
+  return {
+    busi_name: business?.busi_name ?? null,
+    busi_addr: business?.busi_addr ?? null,
+    busi_owner: business?.busi_owner ?? null,
+    busi_vat_type: business?.busi_vat_type ?? null,
+    busi_tin: business?.busi_tin ?? null,
+    vat_rate: business?.vat_rate ?? null,
+    price_vat_mode: business?.price_vat_mode ?? null,
+    business_logo_path: business?.business_logo_path ?? null,
+    valid_start: receiptSettings?.valid_start ?? null,
+    valid_until: receiptSettings?.valid_until ?? null,
+    developer: receiptSettings?.developer ?? null,
+    accreditation_no: receiptSettings?.accreditation_no ?? null,
+    softwareversion: receiptSettings?.softwareversion ?? null,
+    contactdetail: receiptSettings?.contactdetail ?? null,
+    developer_logo_path: receiptSettings?.developer_logo_path ?? null,
+    print_logo_width: receiptSettings?.print_logo_width ?? null,
+    print_logo_align: receiptSettings?.print_logo_align ?? null,
+    print_logo_enabled: receiptSettings?.print_logo_enabled ?? null,
+  }
+}
+
+export async function getPosReceiptContextPublic(branchCode?: string) {
+  const [business, receiptSettings] = await Promise.all([
+    getBranchBusinessProfilePublic(branchCode),
+    getReceiptHeadingPublic(branchCode),
+  ])
+
+  return mergePosReceiptContext(business, receiptSettings)
 }
 
 export async function getReceiptHeadingPublic(branchCode?: string) {

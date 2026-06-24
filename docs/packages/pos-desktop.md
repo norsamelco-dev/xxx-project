@@ -25,6 +25,8 @@ pos-desktop/
 3. Loads Expo web at `http://localhost:8584` (or bundled static)
 4. POS UI talks to hosted API for business data; **local API** for print only
 
+Business profile (logo, VAT, store name) is loaded from `GET /api/branches/public` and merged with receipt-heading print settings client-side — see [POS mobile / Expo](pos-mobile-expo.md).
+
 ## Dev command
 
 ```bash
