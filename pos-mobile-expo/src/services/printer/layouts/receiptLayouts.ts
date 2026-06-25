@@ -51,6 +51,12 @@ function buildVatTinLine(heading: ReceiptHeading | null) {
   return `${vatType}: ${tin}`
 }
 
+function formatCashierReceiptLabel(cashierName: string, cashierId?: string | number): string {
+  const name = cashierName.trim() || 'Cashier'
+  const id = cashierId != null && String(cashierId).trim() !== '' ? String(cashierId).trim() : ''
+  return id ? `${name} (${id})` : name
+}
+
 function buildItemRows(items: CartLine[], width = RECEIPT_WIDTH) {
   const rows: string[] = []
   rows.push(line(['BATCH', 'QTY', 'DESCRIPTION', 'PRICE', 'TOTAL'], ITEM_COL_WIDTHS))
@@ -86,6 +92,7 @@ function buildStandard80mmReceipt(options: ReceiptLayoutInput) {
   const {
     heading,
     config,
+    cashierName,
     cashierId,
     orsiDisplay,
     lines,
@@ -115,6 +122,7 @@ function buildStandard80mmReceipt(options: ReceiptLayoutInput) {
   pushWrappedText(rows, address, width)
 
   pushWrappedText(rows, buildVatTinLine(heading), width)
+  rows.push('')
   rows.push(centerText('SALES INVOICE', width))
   rows.push(divider(width))
 
@@ -124,7 +132,7 @@ function buildStandard80mmReceipt(options: ReceiptLayoutInput) {
   pushLabelValueLines(rows, 'PTU #: ', config.ptu_no || '', width)
   pushLabelValueLines(rows, 'DATE ISSUED: ', formatHeadingDate(heading?.valid_start), width)
   pushLabelValueLines(rows, 'VALID UNTIL: ', formatHeadingDate(heading?.valid_until), width)
-  pushLabelValueLines(rows, 'CASHIER #: ', String(cashierId ?? ''), width)
+  pushLabelValueLines(rows, 'CASHIER: ', formatCashierReceiptLabel(cashierName, cashierId), width)
   pushLabelValueLines(rows, 'DATE: ', formatReceiptDate(transactionDate), width)
   rows.push(divider(width))
 
