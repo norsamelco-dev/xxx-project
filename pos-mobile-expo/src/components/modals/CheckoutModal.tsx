@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import { useCallback, useEffect, useMemo, useRef, useState, type ElementRef } from 'react'
+import { Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native'
 import { useAuth } from '../../context/AuthContext'
 import { useCart } from '../../context/CartContext'
 import { usePosSession } from '../../context/PosSessionContext'
@@ -17,6 +17,7 @@ import {
   type EwalletProviderId,
   type PaymentCategory,
 } from '../../constants/paymentMethods'
+import { isCheckoutShortcut, isEditableTarget } from '../../hooks/useDesktopKeyboardShortcuts'
 import { checkout, getPosReceiptContextPublic } from '../../services/api/posApi'
 import { resolveBranchCode } from '../../services/config/terminalConfig'
 import { printSalesReceipt } from '../../services/printer/printerService'
@@ -40,6 +41,9 @@ type Props = {
   onClose: () => void
 }
 
+const skipTabFocusWebProps =
+  Platform.OS === 'web' ? ({ tabIndex: -1, focusable: false } as const) : ({} as const)
+
 function ButtonWithIcon({
   icon,
   label,
@@ -57,6 +61,7 @@ function ButtonWithIcon({
     <Pressable
       style={[paymentMethodButtonStyle, active && paymentMethodButtonActiveStyle, style]}
       onPress={onPress}
+      {...skipTabFocusWebProps}
     >
       <Text style={{ fontSize: 16, marginBottom: 2 }}>{icon}</Text>
       <Text style={[paymentMethodTextStyle, active && paymentMethodTextActiveStyle]}>{label}</Text>
@@ -109,6 +114,9 @@ export default function CheckoutModal({ visible, onClose }: Props) {
   const [paymentRef, setPaymentRef] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [completedSale, setCompletedSale] = useState<CompletedSale | null>(null)
+  const amtTenderedRef = useRef<ElementRef<typeof TextInput>>(null)
+  const paymentRefRef = useRef<ElementRef<typeof TextInput>>(null)
+  const handleCompleteSaleRef = useRef<(skipPrinterCheck?: boolean) => Promise<void>>(async () => {})
 
   const paymentMethod = useMemo(() => {
     if (paymentCategory === 'cash') {
@@ -133,6 +141,36 @@ export default function CheckoutModal({ visible, onClose }: Props) {
     return true
   }, [paymentCategory, tenderedValue, totals.grandTotal, paymentRef])
 
+  const checkoutFormOpen = visible && completedSale === null
+
+  const focusPrimaryField = useCallback((category: PaymentCategory) => {
+    if (Platform.OS !== 'web') {
+      return
+    }
+
+    requestAnimationFrame(() => {
+      if (category === 'cash') {
+        amtTenderedRef.current?.focus()
+      } else {
+        paymentRefRef.current?.focus()
+      }
+    })
+  }, [])
+
+  const handlePaymentCategoryChange = useCallback(
+    (category: PaymentCategory) => {
+      setPaymentCategory(category)
+      if (category === 'cash') {
+        setAmtTendered('0')
+        setPaymentRef('')
+        return
+      }
+      setAmtTendered(String(totals.grandTotal))
+      setPaymentRef('')
+    },
+    [totals.grandTotal],
+  )
+
   useEffect(() => {
     if (visible) {
       setAmtTendered('0')
@@ -144,20 +182,59 @@ export default function CheckoutModal({ visible, onClose }: Props) {
     }
   }, [visible])
 
+  useEffect(() => {
+    if (!checkoutFormOpen || Platform.OS !== 'web') {
+      return
+    }
+
+    const timer = window.setTimeout(() => focusPrimaryField(paymentCategory), 0)
+    return () => window.clearTimeout(timer)
+  }, [checkoutFormOpen, paymentCategory, focusPrimaryField])
+
+  useEffect(() => {
+    if (!checkoutFormOpen || Platform.OS !== 'web') {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isCheckoutShortcut(event)) {
+        if (!isSubmitting && canCompleteCheckout) {
+          event.preventDefault()
+          event.stopPropagation()
+          void handleCompleteSaleRef.current()
+        }
+        return
+      }
+
+      if (isEditableTarget(event.target)) {
+        return
+      }
+
+      if (event.key === '1') {
+        event.preventDefault()
+        handlePaymentCategoryChange('cash')
+        return
+      }
+
+      if (event.key === '2') {
+        event.preventDefault()
+        handlePaymentCategoryChange('card')
+        return
+      }
+
+      if (event.key === '3') {
+        event.preventDefault()
+        handlePaymentCategoryChange('ewallet')
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
+  }, [checkoutFormOpen, handlePaymentCategoryChange, isSubmitting, canCompleteCheckout])
+
   function handleDismissComplete() {
     setCompletedSale(null)
     onClose()
-  }
-
-  function handlePaymentCategoryChange(category: PaymentCategory) {
-    setPaymentCategory(category)
-    if (category === 'cash') {
-      setAmtTendered('0')
-      setPaymentRef('')
-      return
-    }
-    setAmtTendered(String(totals.grandTotal))
-    setPaymentRef('')
   }
 
   async function handleCompleteSale(skipPrinterCheck = false) {
@@ -281,6 +358,24 @@ export default function CheckoutModal({ visible, onClose }: Props) {
     }
   }
 
+  handleCompleteSaleRef.current = handleCompleteSale
+
+  const checkoutShortcutInputProps =
+    Platform.OS === 'web'
+      ? {
+          onKeyDown: (event: KeyboardEvent) => {
+            if (!isCheckoutShortcut(event)) {
+              return
+            }
+            if (!isSubmitting && canCompleteCheckout) {
+              event.preventDefault()
+              event.stopPropagation()
+              void handleCompleteSale()
+            }
+          },
+        }
+      : {}
+
   return (
     <>
       <SaleCompleteModal
@@ -294,7 +389,7 @@ export default function CheckoutModal({ visible, onClose }: Props) {
         onClose={handleDismissComplete}
       />
       <Modal
-        visible={visible && completedSale === null}
+        visible={checkoutFormOpen}
         transparent
         animationType="fade"
         onRequestClose={() => {
@@ -338,6 +433,11 @@ export default function CheckoutModal({ visible, onClose }: Props) {
               </Text>
 
               <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: spacing.xs }}>Payment method</Text>
+              {Platform.OS === 'web' ? (
+                <Text style={{ color: colors.textMuted, fontSize: 11, marginBottom: spacing.xs, lineHeight: 16 }}>
+                  Press 1 Cash · 2 Card · 3 E-Wallet · Tab to amount · Ctrl+Enter checkout
+                </Text>
+              ) : null}
               <View style={{ flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md }}>
                 {PAYMENT_CATEGORIES.map((option) => (
                   <ButtonWithIcon
@@ -360,6 +460,7 @@ export default function CheckoutModal({ visible, onClose }: Props) {
                         key={option.id}
                         style={[subtypeButtonStyle, cardNetwork === option.id && subtypeButtonActiveStyle]}
                         onPress={() => setCardNetwork(option.id)}
+                        {...skipTabFocusWebProps}
                       >
                         <Text
                           style={[subtypeButtonTextStyle, cardNetwork === option.id && subtypeButtonTextActiveStyle]}
@@ -381,6 +482,7 @@ export default function CheckoutModal({ visible, onClose }: Props) {
                         key={option.id}
                         style={[subtypeButtonStyle, ewalletProvider === option.id && subtypeButtonActiveStyle]}
                         onPress={() => setEwalletProvider(option.id)}
+                        {...skipTabFocusWebProps}
                       >
                         <Text
                           style={[
@@ -402,12 +504,16 @@ export default function CheckoutModal({ visible, onClose }: Props) {
                     Amount Tendered
                   </Text>
                   <TextInput
+                    ref={amtTenderedRef}
                     style={inputStyle}
                     value={amtTendered}
                     onChangeText={setAmtTendered}
                     keyboardType="decimal-pad"
                     placeholder="0.00"
                     placeholderTextColor="#64748b"
+                    autoFocus={Platform.OS === 'web'}
+                    selectTextOnFocus
+                    {...checkoutShortcutInputProps}
                   />
                   <Text style={{ color: colors.textMuted, marginBottom: spacing.md }}>
                     Change: {formatMoney(change)}
@@ -417,6 +523,7 @@ export default function CheckoutModal({ visible, onClose }: Props) {
                 <>
                   <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: spacing.xs }}>Reference no.</Text>
                   <TextInput
+                    ref={paymentRefRef}
                     style={inputStyle}
                     value={paymentRef}
                     onChangeText={setPaymentRef}
@@ -424,6 +531,8 @@ export default function CheckoutModal({ visible, onClose }: Props) {
                     placeholderTextColor="#64748b"
                     autoCapitalize="characters"
                     maxLength={32}
+                    autoFocus={Platform.OS === 'web'}
+                    {...checkoutShortcutInputProps}
                   />
                   <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: spacing.md }}>
                     Charged: {formatMoney(totals.grandTotal)} · {paymentMethod}

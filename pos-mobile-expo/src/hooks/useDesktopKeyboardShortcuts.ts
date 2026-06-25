@@ -18,6 +18,8 @@ function isEditableTarget(target: EventTarget | null) {
   return tag === 'input' || tag === 'textarea' || target.isContentEditable
 }
 
+export { isEditableTarget }
+
 export function isCustomQtyShortcut(event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'key' | 'code'>) {
   const modPressed = event.ctrlKey || event.metaKey
   if (!modPressed) {
