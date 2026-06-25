@@ -73,6 +73,13 @@ export function doubleDivider(width = RECEIPT_WIDTH) {
   return '='.repeat(width)
 }
 
+/** Section banner for thermal reports: === title === */
+export function pushSectionHeader(rows: string[], title: string, width = RECEIPT_WIDTH) {
+  rows.push(doubleDivider(width))
+  rows.push(centerText(title, width))
+  rows.push(divider(width))
+}
+
 export function labelValue(label: string, value: string, width = RECEIPT_WIDTH) {
   return labelValueLines(label, value, width)[0] ?? clipLine(label, width)
 }

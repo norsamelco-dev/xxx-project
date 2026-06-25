@@ -1,6 +1,7 @@
 import type { PosConfig } from '../../../types/config'
 import type { PosReport, ReceiptHeading } from '../../../types/pos'
 import type { ReportLayoutId } from '../../../types/printLayouts'
+import { formatBranchLabel } from '../../config/terminalConfig'
 import { roundMoney } from '../../../utils/vat'
 import {
   RECEIPT_WIDTH,
@@ -8,12 +9,11 @@ import {
   clipLine,
   divider,
   doubleDivider,
-  formatMoney,
-  formatMoneyLines,
   formatReceiptDate,
   formatVatLabel,
   pushLabelValueLines,
   pushMoneyLines,
+  pushSectionHeader,
   pushWrappedText,
   wrapText,
 } from './printLayoutUtils'
@@ -27,6 +27,15 @@ export type ReportLayoutInput = {
   cashierId?: string | number
   report: PosReport
   reportKind: ReportKind
+}
+
+type ReportCashTotals = {
+  startingBalance: number
+  cashPayment: number
+  cardPayment: number
+  ewalletPayment: number
+  cashToRemit: number
+  referenceTotal: number
 }
 
 function buildVatTinLine(heading: ReceiptHeading | null) {
@@ -47,7 +56,28 @@ function pushCountLine(rows: string[], label: string, value: number | string, wi
   rows.push(clipLine(`${label}${' '.repeat(gap)}${text}`, width))
 }
 
-function buildReportHeader(rows: string[], input: ReportLayoutInput, width: number) {
+function resolveCashTotals(report: PosReport): ReportCashTotals {
+  const startingBalance = report.starting_balance ?? 0
+  const cashPayment = report.payment_cash ?? report.cash_in_drawer ?? 0
+  const cardPayment = report.payment_card ?? 0
+  const ewalletPayment = report.payment_ewallet ?? 0
+  const cashToRemit =
+    report.cash_to_remit ?? report.drawer_total ?? roundMoney(startingBalance + cashPayment)
+  const referenceTotal =
+    report.reference_total ??
+    roundMoney(startingBalance + cashPayment + cardPayment + ewalletPayment)
+
+  return {
+    startingBalance,
+    cashPayment,
+    cardPayment,
+    ewalletPayment,
+    cashToRemit,
+    referenceTotal,
+  }
+}
+
+function buildReportStoreHeader(rows: string[], input: ReportLayoutInput, width: number) {
   const { heading, config } = input
   const storeName = (heading?.busi_name || 'Linda Lim POS').toUpperCase()
 
@@ -67,8 +97,104 @@ function buildReportHeader(rows: string[], input: ReportLayoutInput, width: numb
   pushLabelValueLines(rows, 'PTU #: ', config.ptu_no || '', width)
 }
 
+function buildReportShiftContext(rows: string[], input: ReportLayoutInput, width: number) {
+  const { config, cashierName, report } = input
+  const reportDate = report.generated_at ? new Date(report.generated_at) : new Date()
+  const cashierLabel = cashierName || report.cashier_name || 'Cashier'
+  const branchLabel = formatBranchLabel({
+    branch_name: config.branch_name,
+    branch_code: config.branch_code,
+    branch: config.branch,
+  })
+  const seriesNo = report.sales_series_no?.trim()
+
+  pushSectionHeader(rows, '1. SHIFT INFO', width)
+  pushLabelValueLines(rows, 'BRANCH: ', branchLabel, width)
+  if (seriesNo) {
+    pushLabelValueLines(rows, 'SERIES: ', seriesNo, width)
+  }
+  pushLabelValueLines(rows, 'CASHIER: ', cashierLabel, width)
+  pushLabelValueLines(rows, 'TERMINAL: ', config.terminal_name || report.machine_name, width)
+  pushLabelValueLines(rows, 'DATE/TIME: ', formatReceiptDate(reportDate), width)
+  pushLabelValueLines(rows, 'START OR/SI: ', report.start_orsi || '00000000', width)
+  pushLabelValueLines(rows, 'LAST OR/SI: ', report.last_orsi || '00000000', width)
+}
+
+function buildReportSalesSummary(rows: string[], report: PosReport, width: number) {
+  const vatRate = report.vat_rate ?? 0.12
+
+  pushSectionHeader(rows, '2. SALES SUMMARY', width)
+  pushMoneyLines(rows, 'GROSS SALES:', report.gross_sales ?? report.total_sales, width)
+  pushMoneyLines(rows, 'LESS DISCOUNT:', report.discount_amount ?? 0, width)
+  pushMoneyLines(rows, 'NET SALES (before VAT):', report.net_sales_vat_excl ?? report.net_sales, width)
+  pushMoneyLines(rows, `${formatVatLabel(vatRate)}:`, report.vat_amount, width)
+  rows.push(divider(width))
+  pushMoneyLines(rows, 'TOTAL SALES:', report.total_sales, width)
+}
+
+function buildReportTransactionCounts(rows: string[], report: PosReport, width: number) {
+  pushSectionHeader(rows, '3. TRANSACTIONS', width)
+  pushCountLine(rows, 'ITEMS SOLD:', report.qty_sold, width)
+  pushCountLine(rows, 'COMPLETED SALES:', report.completed_count ?? report.transaction_count, width)
+  pushCountLine(rows, 'VOIDED/CANCELLED:', report.cancelled_count ?? 0, width)
+}
+
+function buildReportPayments(rows: string[], report: PosReport, width: number) {
+  pushSectionHeader(rows, '4. PAYMENTS', width)
+  pushMoneyLines(rows, 'CASH:', report.payment_cash ?? 0, width)
+  pushMoneyLines(rows, 'CARD:', report.payment_card ?? 0, width)
+  pushMoneyLines(rows, 'E-WALLET:', report.payment_ewallet ?? 0, width)
+  rows.push(divider(width))
+  pushMoneyLines(rows, 'TOTAL COLLECTED:', report.total_payments ?? report.total_sales, width)
+}
+
+function buildReportCashDrawer(rows: string[], report: PosReport, width: number) {
+  const totals = resolveCashTotals(report)
+
+  pushSectionHeader(rows, '5. CASH DRAWER', width)
+  pushMoneyLines(rows, 'STARTING BALANCE:', totals.startingBalance, width)
+  pushMoneyLines(rows, '+ CASH SALES:', totals.cashPayment, width)
+  pushMoneyLines(rows, '= CASH TO REMIT:', totals.cashToRemit, width)
+  rows.push(divider(width))
+  pushMoneyLines(rows, 'REFERENCE TOTAL:', totals.referenceTotal, width)
+  rows.push(centerText('(Starting + all payments)', width))
+}
+
+function buildReportFooter(rows: string[], reportKind: ReportKind, width: number, detailed: boolean) {
+  rows.push('')
+  if (detailed) {
+    if (reportKind === 'X') {
+      rows.push(centerText('X-Reading: mid-shift snapshot.', width))
+      rows.push(centerText('Does not reset POS totals.', width))
+    } else {
+      rows.push(centerText('Z-Reading: end-of-shift report.', width))
+      rows.push(centerText('Closes series after printing.', width))
+    }
+  } else {
+    if (reportKind === 'X') {
+      for (const line of wrapText(
+        'This is an X-Reading report. It provides a summary of all transactions and the total sales collected up to the time of printing. This report is for monitoring and reference purposes only and does not reset the accumulated totals on the POS.',
+        width,
+      )) {
+        rows.push(centerText(line, width))
+      }
+    } else {
+      for (const line of wrapText(
+        'This is a Z-Reading report. It provides the final sales summary for the day or shift. Printing this report will reset/clear the accumulated sales totals on the POS and is typically performed at end-of-day closing for official recording and reconciliation.',
+        width,
+      )) {
+        rows.push(centerText(line, width))
+      }
+    }
+  }
+
+  rows.push('')
+  rows.push(centerText('*THIS DOCUMENT IS NOT VALID', width))
+  rows.push(centerText('FOR CLAIM OF INPUT TAX*', width))
+}
+
 function buildStandard80mmReadingReport(input: ReportLayoutInput) {
-  const { config, cashierName, cashierId, report, reportKind } = input
+  const { config, cashierName, report, reportKind } = input
   const width = RECEIPT_WIDTH
   const rows: string[] = []
   const vatRate = report.vat_rate ?? 0.12
@@ -77,8 +203,9 @@ function buildStandard80mmReadingReport(input: ReportLayoutInput) {
   const title = reportKind === 'X' ? 'X-READING REPORT' : 'Z-READING REPORT'
   const netSalesLabel =
     reportKind === 'X' ? 'NET SALES (VAT EXCL):' : 'NET SALES (VAT BASE):'
+  const totals = resolveCashTotals(report)
 
-  buildReportHeader(rows, input, width)
+  buildReportStoreHeader(rows, input, width)
 
   rows.push(divider(width))
   rows.push(centerText(title, width))
@@ -116,51 +243,45 @@ function buildStandard80mmReadingReport(input: ReportLayoutInput) {
   pushCountLine(rows, 'CANCELLED:', report.cancelled_count ?? 0, width)
   rows.push(divider(width))
 
-  const startingBalance = report.starting_balance ?? 0
-  const cashPayment = report.payment_cash ?? report.cash_in_drawer ?? 0
-  const cardPayment = report.payment_card ?? 0
-  const ewalletPayment = report.payment_ewallet ?? 0
-  const cashToRemit =
-    report.cash_to_remit ?? report.drawer_total ?? roundMoney(startingBalance + cashPayment)
-  const referenceTotal =
-    report.reference_total ??
-    roundMoney(startingBalance + cashPayment + cardPayment + ewalletPayment)
-
   rows.push(clipLine('CASH REMITTANCE (CASH ONLY)', width))
-  pushMoneyLines(rows, 'STARTING BALANCE:', startingBalance, width)
-  pushMoneyLines(rows, 'CASH PAYMENT:', cashPayment, width)
-  pushMoneyLines(rows, 'CASH TO REMIT:', cashToRemit, width)
+  pushMoneyLines(rows, 'STARTING BALANCE:', totals.startingBalance, width)
+  pushMoneyLines(rows, 'CASH PAYMENT:', totals.cashPayment, width)
+  pushMoneyLines(rows, 'CASH TO REMIT:', totals.cashToRemit, width)
   rows.push(divider(width))
-  pushMoneyLines(rows, 'REFERENCE TOTAL:', referenceTotal, width)
+  pushMoneyLines(rows, 'REFERENCE TOTAL:', totals.referenceTotal, width)
   rows.push(centerText('*For reconciliation reference only*', width))
   rows.push(divider(width))
 
-  rows.push('')
-  if (reportKind === 'X') {
-    for (const line of wrapText(
-      'This is an X-Reading report. It provides a summary of all transactions and the total sales collected up to the time of printing. This report is for monitoring and reference purposes only and does not reset the accumulated totals on the POS.',
-      width,
-    )) {
-      rows.push(centerText(line, width))
-    }
-  } else {
-    for (const line of wrapText(
-      'This is a Z-Reading report. It provides the final sales summary for the day or shift. Printing this report will reset/clear the accumulated sales totals on the POS and is typically performed at end-of-day closing for official recording and reconciliation.',
-      width,
-    )) {
-      rows.push(centerText(line, width))
-    }
-  }
+  buildReportFooter(rows, reportKind, width, false)
 
-  rows.push('')
-  rows.push(centerText('*THIS DOCUMENT IS NOT VALID', width))
-  rows.push(centerText('FOR CLAIM OF INPUT TAX*', width))
+  return rows.join('\n')
+}
+
+function buildDetailed80mmReadingReport(input: ReportLayoutInput) {
+  const { reportKind } = input
+  const width = RECEIPT_WIDTH
+  const rows: string[] = []
+  const title = reportKind === 'X' ? 'X-READING REPORT' : 'Z-READING REPORT'
+
+  buildReportStoreHeader(rows, input, width)
+
+  rows.push(divider(width))
+  rows.push(centerText(title, width))
+  rows.push(divider(width))
+
+  buildReportShiftContext(rows, input, width)
+  buildReportSalesSummary(rows, input.report, width)
+  buildReportTransactionCounts(rows, input.report, width)
+  buildReportPayments(rows, input.report, width)
+  buildReportCashDrawer(rows, input.report, width)
+  buildReportFooter(rows, reportKind, width, true)
 
   return rows.join('\n')
 }
 
 const reportBuilders: Record<ReportLayoutId, (input: ReportLayoutInput) => string> = {
   standard80mm: buildStandard80mmReadingReport,
+  detailed80mm: buildDetailed80mmReadingReport,
 }
 
 export function buildReadingReportByLayout(layoutId: ReportLayoutId, input: ReportLayoutInput) {

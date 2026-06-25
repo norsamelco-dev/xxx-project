@@ -1,5 +1,8 @@
-import { ActivityIndicator, Modal, Platform, Pressable, Text, View } from 'react-native'
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native'
 import PrintLayoutPreview from '../pos/PrintLayoutPreview'
+import ReportSummaryPanel from '../pos/ReportSummaryPanel'
+import type { PosConfig } from '../../types/config'
+import type { PosReport } from '../../types/pos'
 import type { PrintLogoAlign } from '../../utils/printLogo'
 import { colors, spacing } from '../../styles/theme'
 
@@ -9,6 +12,9 @@ type Props = {
   visible: boolean
   kind: ReportPrintKind
   previewText: string
+  report?: PosReport | null
+  config?: PosConfig | null
+  seriesNo?: string | null
   logoUri?: string | null
   logoWidthPercent?: number
   logoAlign?: PrintLogoAlign
@@ -23,6 +29,9 @@ export default function ReportPrintPreviewModal({
   visible,
   kind,
   previewText,
+  report = null,
+  config = null,
+  seriesNo = null,
   logoUri = null,
   logoWidthPercent = 0,
   logoAlign = 'center',
@@ -32,9 +41,12 @@ export default function ReportPrintPreviewModal({
   onPrint,
   onClose,
 }: Props) {
+  const { width: windowWidth } = useWindowDimensions()
   const title = kind === 'X' ? 'X-Reading Report' : 'Z-Reading Report'
   const layoutLabel = kind === 'X' ? 'X-Reading (80mm)' : 'Z-Reading (80mm)'
-  const modalMaxWidth = 520
+  const isWideLayout = Platform.OS === 'web' && windowWidth >= 900
+  const showSummary = Boolean(report && config)
+  const modalMaxWidth = showSummary && isWideLayout ? 980 : 520
   const modalMaxHeight = Platform.OS === 'web' ? 760 : 640
   const busy = loading || isPrinting
 
@@ -71,7 +83,9 @@ export default function ReportPrintPreviewModal({
             <Text style={{ color: colors.text, fontWeight: '800', fontSize: 16, flex: 1 }}>{title}</Text>
           </View>
           <Text style={{ color: colors.textMuted, fontSize: 12, marginBottom: spacing.sm, lineHeight: 18 }}>
-            Review the store logo and report below before printing. This matches the 80mm thermal slip.
+            {showSummary
+              ? 'Use the summary on the left for a quick read. The slip preview on the right matches the 80mm thermal printout.'
+              : 'Review the store logo and report below before printing. This matches the 80mm thermal slip.'}
           </Text>
 
           {loading ? (
@@ -84,16 +98,49 @@ export default function ReportPrintPreviewModal({
               <Text style={{ color: colors.bad, lineHeight: 20 }}>{error}</Text>
             </View>
           ) : (
-            <View style={{ flex: 1, minHeight: 0 }}>
-              <PrintLayoutPreview
-                previewText={previewText}
-                layoutLabel={layoutLabel}
-                logoUri={logoUri}
-                logoWidthPercent={logoWidthPercent}
-                logoAlign={logoAlign}
-                expandedScroll
-                fitInModal
-              />
+            <View
+              style={{
+                flex: 1,
+                minHeight: 0,
+                flexDirection: showSummary && isWideLayout ? 'row' : 'column',
+                gap: spacing.md,
+              }}
+            >
+              {showSummary ? (
+                <ScrollView
+                  style={{ flex: isWideLayout ? 1.1 : undefined, maxHeight: isWideLayout ? undefined : 280 }}
+                  contentContainerStyle={{ paddingBottom: spacing.sm }}
+                  showsVerticalScrollIndicator
+                >
+                  <ReportSummaryPanel kind={kind} report={report!} config={config!} seriesNo={seriesNo || undefined} />
+                </ScrollView>
+              ) : null}
+
+              <View style={{ flex: isWideLayout ? 1 : 1, minHeight: 0 }}>
+                {showSummary && !isWideLayout ? (
+                  <Text
+                    style={{
+                      color: colors.textMuted,
+                      fontSize: 11,
+                      fontWeight: '700',
+                      marginBottom: spacing.xs,
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.4,
+                    }}
+                  >
+                    Thermal slip preview
+                  </Text>
+                ) : null}
+                <PrintLayoutPreview
+                  previewText={previewText}
+                  layoutLabel={layoutLabel}
+                  logoUri={logoUri}
+                  logoWidthPercent={logoWidthPercent}
+                  logoAlign={logoAlign}
+                  expandedScroll
+                  fitInModal
+                />
+              </View>
             </View>
           )}
 

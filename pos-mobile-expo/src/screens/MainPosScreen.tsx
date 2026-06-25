@@ -1061,6 +1061,9 @@ export default function MainPosScreen({ navigation }: Props) {
         visible={reportPrintKind !== null}
         kind={reportPrintKind ?? 'X'}
         previewText={reportPrintPreviewText}
+        report={reportPrintPayload?.report ?? null}
+        config={config}
+        seriesNo={reportPrintPayload?.seriesNo ?? activeSeriesNo}
         logoUri={logoPreviewEnabled ? printLogoPreview.uri : null}
         logoWidthPercent={logoPreviewEnabled ? printLogoPreview.widthPercent : 0}
         logoAlign={printLogoPreview.align}

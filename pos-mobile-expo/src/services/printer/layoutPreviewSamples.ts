@@ -114,6 +114,7 @@ export function getReceiptLayoutPreviewInput({
 const SAMPLE_REPORT: PosReport = {
   report_type: 'X',
   machine_name: 'POS-0001',
+  sales_series_no: 'POS-0001-20260625-001',
   generated_at: new Date().toISOString(),
   cashier_name: 'cashier1',
   total_sales: 2143,
