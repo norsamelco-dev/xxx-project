@@ -20,7 +20,6 @@ web-build/
 
 # Archives / local backups
 *.rar
-db_bak/
 
 # Logs
 logs/
