@@ -12,8 +12,15 @@ dist/
 dist-ssr/
 build/
 release/
+release-new/
+release-build/
 web-build/
 .expo/
+**/.cxx/
+
+# Archives / local backups
+*.rar
+db_bak/
 
 # Logs
 logs/
