@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDesktopKeyboardShortcuts } from '../hooks/useDesktopKeyboardShortcuts'
-import { Alert, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native'
+import { Alert, ActivityIndicator, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 import TopBar from '../components/pos/TopBar'
 import CartList from '../components/pos/CartList'
@@ -77,6 +77,7 @@ import {
   type TestPrintLayoutId,
 } from '../types/printLayouts'
 import { colors, getActiveThemeId, setActiveTheme } from '../styles/theme'
+import { commonStyles } from '../styles/common'
 import { resolveThemeId, themeOptions, themePalettes, type ThemeId } from '../styles/themes'
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MainPos'>
@@ -411,8 +412,15 @@ export default function MainPosScreen({ navigation }: Props) {
     onCheckout: handleCheckoutPress,
   })
 
+  const printLogoPreview = useMemo(() => getPrintLogoPreviewStyle(receiptHeading), [receiptHeading])
+
   if (!config) {
-    return null
+    return (
+      <View style={[commonStyles.screen, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={colors.accent} />
+        <Text style={[commonStyles.subtitle, { marginTop: 16 }]}>Redirecting...</Text>
+      </View>
+    )
   }
 
   const activeConfig = config
@@ -424,7 +432,6 @@ export default function MainPosScreen({ navigation }: Props) {
   const savedMarginRight = normalizeLeftMargin(activeConfig.print_margin_right)
   const savedMarginTop = normalizeVerticalMargin(activeConfig.print_margin_top)
   const savedMarginBottom = normalizeVerticalMargin(activeConfig.print_margin_bottom)
-  const printLogoPreview = useMemo(() => getPrintLogoPreviewStyle(receiptHeading), [receiptHeading])
   const logoPreviewEnabled = isPrintLogoEnabled(receiptHeading)
 
   function buildPreviewText(preview: PendingLayoutPreview) {
@@ -437,7 +444,10 @@ export default function MainPosScreen({ navigation }: Props) {
     const cashierName = user?.fullName || user?.username || 'Cashier'
 
     if (preview.kind === 'test-print') {
-      const baseText = buildTestPrintByLayout(preview.layoutId, getSampleTestPrintLayoutInput(activeConfig))
+      const baseText = buildTestPrintByLayout(
+        preview.layoutId,
+        getSampleTestPrintLayoutInput(activeConfig, receiptHeading),
+      )
       return applyPrintMarginsToText(baseText, margins)
     }
 

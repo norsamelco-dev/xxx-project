@@ -10,7 +10,15 @@ type ReregisterOptions = {
   onConfigCleared?: () => void
 }
 
-export async function reregisterTerminal({ navigation, logout, onConfigCleared }: ReregisterOptions) {
+export async function performTerminalReregister({ navigation, logout, onConfigCleared }: ReregisterOptions) {
+  await deleteConfig()
+  clearCashCountDraft()
+  navigation.reset({ index: 0, routes: [{ name: 'MachineRegistration' }] })
+  onConfigCleared?.()
+  await logout()
+}
+
+export async function reregisterTerminal(options: ReregisterOptions) {
   const confirmed = await confirmAsync(
     'Re-register terminal',
     'This deletes local config and restarts setup. Continue?',
@@ -22,9 +30,5 @@ export async function reregisterTerminal({ navigation, logout, onConfigCleared }
     return
   }
 
-  await deleteConfig()
-  clearCashCountDraft()
-  onConfigCleared?.()
-  await logout()
-  navigation.reset({ index: 0, routes: [{ name: 'MachineRegistration' }] })
+  await performTerminalReregister(options)
 }

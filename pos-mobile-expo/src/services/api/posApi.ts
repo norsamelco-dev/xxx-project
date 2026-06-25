@@ -1,5 +1,6 @@
 import { apiClient } from './client'
 import type {
+  BranchTerminalList,
   CheckoutResult,
   PosReport,
   PosSummary,
@@ -48,6 +49,13 @@ export async function lookupTerminal(machineName: string, branchCode?: string) {
       machine_name: machineName,
       ...(branchCode ? { branch_code: branchCode } : {}),
     },
+  })
+  return response.data.data
+}
+
+export async function listTerminalsByBranchCode(branchCode: string) {
+  const response = await apiClient.get<{ data: BranchTerminalList }>('/api/pos/terminals/by-branch', {
+    params: { branch_code: branchCode },
   })
   return response.data.data
 }

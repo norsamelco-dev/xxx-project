@@ -2,6 +2,7 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { ThemedButton } from '../components/ThemedButton'
 import AdminShell from '../components/AdminShell'
 import { ButtonLabel } from '../components/ButtonIcon'
+import { useAuth } from '../context/AuthContext'
 import { usePageVisitAudit } from '../hooks/usePageVisitAudit'
 import { apiFetch } from '../lib/api'
 import { AUDIT_PAGES, buildAuditDescription } from '../lib/audit'
@@ -18,6 +19,7 @@ type MachineTerminal = {
   valid_start: string | null
   valid_end: string | null
   is_active: number
+  branch_id?: number
 }
 
 type MachineTerminalForm = {
@@ -126,7 +128,13 @@ function buildDuplicateErrorMap(duplicates: DuplicateField[]) {
 }
 
 function MachineTerminalRegistrationPage() {
+  const { user } = useAuth()
   usePageVisitAudit(AUDIT_PAGES.MACHINE_TERMINAL)
+  const activeBranchLabel = user?.branchName
+    ? user.branchCode
+      ? `${user.branchName} (${user.branchCode})`
+      : user.branchName
+    : 'your branch'
   const [rows, setRows] = useState<MachineTerminal[]>([])
   const [form, setForm] = useState<MachineTerminalForm>(initialForm)
   const [selectedRowId, setSelectedRowId] = useState<number | null>(null)
@@ -144,8 +152,12 @@ function MachineTerminalRegistrationPage() {
   const [success, setSuccess] = useState('')
 
   useEffect(() => {
+    if (!user?.branchId) {
+      return
+    }
+
     void loadRows()
-  }, [])
+  }, [user?.branchId])
 
   useEffect(() => {
     if (!isFormOpen) {
@@ -216,6 +228,12 @@ function MachineTerminalRegistrationPage() {
   }, [editingId, form, isFormOpen])
 
   async function loadRows() {
+    if (!user?.branchId) {
+      setRows([])
+      setIsLoading(false)
+      return
+    }
+
     try {
       setError('')
       setIsLoading(true)
@@ -430,7 +448,7 @@ function MachineTerminalRegistrationPage() {
   return (
     <AdminShell
       title="Machine / Terminal Registration"
-      description="Manage POS terminals registered under approved BIR Permit to Use entries."
+      description={`Manage POS terminals for ${activeBranchLabel}.`}
       hideTopbar
     >
       <section className="settings-stack">
@@ -442,7 +460,13 @@ function MachineTerminalRegistrationPage() {
             <div>
               <p className="admin-breadcrumb">Dashboard / Machine / Terminal Registration</p>
               <h1 className="audit-card-title">Machine / Terminal Registration</h1>
-              <p className="audit-card-description">Manage POS terminals registered under approved BIR Permit to Use entries.</p>
+              <p className="audit-card-description">
+                Manage POS terminals registered under approved BIR Permit to Use entries for{' '}
+                <strong>{activeBranchLabel}</strong>.
+              </p>
+              <p className="field-hint" style={{ marginTop: 8 }}>
+                Branch: <strong>{activeBranchLabel}</strong>
+              </p>
             </div>
 
             <div className="audit-card-actions">
@@ -460,7 +484,9 @@ function MachineTerminalRegistrationPage() {
 
           {isLoading ? <div className="empty-state">Loading machine terminal records...</div> : null}
 
-          {!isLoading && rows.length === 0 ? <div className="empty-state">No terminal records found.</div> : null}
+          {!isLoading && rows.length === 0 ? (
+            <div className="empty-state">No terminals registered for {activeBranchLabel}.</div>
+          ) : null}
 
           {!isLoading && rows.length > 0 ? (
             <div className="terminal-card-grid">

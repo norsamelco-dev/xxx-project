@@ -7,14 +7,17 @@ import type { TestPrintLayoutInput } from './layouts/testPrintLayouts'
 import type { PrinterDevice } from './printerService'
 import { computeCartTotals, normalizePriceVatMode, resolveVatRateFromHeading } from '../../utils/vat'
 
-export function getSampleTestPrintLayoutInput(config: PosConfig): TestPrintLayoutInput {
+export function getSampleTestPrintLayoutInput(
+  config: PosConfig,
+  heading: ReceiptHeading | null = null,
+): TestPrintLayoutInput {
   const printer: PrinterDevice = {
     id: config.default_printer_id || 'sample-printer',
     name: config.default_printer || 'Sample Printer',
     connectionType: config.default_printer_connection || 'system',
   }
 
-  return { config, printer }
+  return { config, printer, heading }
 }
 
 export type ReceiptPreviewContext = {

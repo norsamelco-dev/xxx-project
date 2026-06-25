@@ -1,4 +1,5 @@
 const { getPool } = require('../db');
+const { findBranchByCode } = require('./branchService');
 const { assertTransactionAccess, listSalesItemsByTransaction } = require('./salesService');
 const {
   DEFAULT_VAT_RATE,
@@ -57,13 +58,32 @@ async function lookupTerminal(machineName, branchCode) {
   const params = [normalized];
 
   if (normalizedBranchCode) {
-    query += ' AND b.branch_code = ?';
+    query += ' AND UPPER(b.branch_code) = UPPER(?)';
     params.push(normalizedBranchCode);
   }
 
   const [rows] = await getPool().query(query, params);
 
   if (!rows.length) {
+    if (normalizedBranchCode) {
+      const [otherRows] = await getPool().query(
+        `SELECT t.*, b.branch_id, b.branch_code, b.branch_name, b.address
+         FROM terminals_a t
+         INNER JOIN branches b ON b.branch_id = t.branch_id
+         WHERE t.machine_name = ?`,
+        [normalized],
+      );
+
+      if (otherRows.length) {
+        const other = otherRows[0];
+        const error = new Error(
+          `Terminal "${normalized}" is registered to branch ${other.branch_code}, not ${normalizedBranchCode}.`,
+        );
+        error.statusCode = 409;
+        throw error;
+      }
+    }
+
     const error = new Error('Terminal not found. Please check terminal name.');
     error.statusCode = 404;
     throw error;
@@ -100,6 +120,53 @@ async function lookupTerminal(machineName, branchCode) {
     branch_code: terminal.branch_code,
     branch_name: terminal.branch_name,
     is_active: Boolean(terminal.is_active),
+  };
+}
+
+async function listTerminalsByBranchCode(branchCode) {
+  const normalizedBranchCode = normalizeText(branchCode);
+
+  if (!normalizedBranchCode) {
+    const error = new Error('Branch code is required.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const branch = await findBranchByCode(normalizedBranchCode);
+
+  if (!branch) {
+    const error = new Error('Branch not found. Please check the branch code.');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  if (!branch.is_active) {
+    const error = new Error('This branch is inactive.');
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const [rows] = await getPool().query(
+    `SELECT t.machine_name AS terminal_name, b.branch_id, b.branch_code, b.branch_name, t.is_active
+     FROM terminals_a t
+     INNER JOIN branches b ON b.branch_id = t.branch_id
+     WHERE b.branch_id = ?
+       AND t.is_active = 1
+     ORDER BY t.machine_name ASC`,
+    [branch.branch_id],
+  );
+
+  return {
+    branch_id: branch.branch_id,
+    branch_code: branch.branch_code,
+    branch_name: branch.branch_name,
+    terminals: rows.map((row) => ({
+      terminal_name: row.terminal_name,
+      branch_id: row.branch_id,
+      branch_code: row.branch_code,
+      branch_name: row.branch_name,
+      is_active: Boolean(row.is_active),
+    })),
   };
 }
 
@@ -1837,10 +1904,10 @@ async function voidPosTransactionInConnection(connection, salesA, reason) {
   await adjustSalesSeriesTotals(connection, salesA.sales_series_no, grandDelta, vatDelta);
 }
 
-async function voidPosTransaction(orsi, { voidReason, machineName, minNumber, userId }) {
+async function voidPosTransaction(orsi, { voidReason, machineName, minNumber, userId, branchId }) {
   const normalizedOrsi = ensureValidOrsi(orsi);
   const reason = ensureVoidReason(voidReason);
-  const access = { machineName, userId, minNumber };
+  const access = { machineName, userId, minNumber, branchId };
 
   await assertTransactionAccess(normalizedOrsi, access);
 
@@ -1860,16 +1927,16 @@ async function voidPosTransaction(orsi, { voidReason, machineName, minNumber, us
   }
 
   const transaction = await fetchTransactionRowByOrsi(normalizedOrsi);
-  const items = await listSalesItemsByTransaction(normalizedOrsi);
+  const items = await listSalesItemsByTransaction(normalizedOrsi, access.branchId);
 
   return { transaction, items };
 }
 
-async function voidPosTransactionItem(orsi, itemId, { voidReason, machineName, minNumber, userId }) {
+async function voidPosTransactionItem(orsi, itemId, { voidReason, machineName, minNumber, userId, branchId }) {
   const normalizedOrsi = ensureValidOrsi(orsi);
   const normalizedItemId = Number(itemId);
   const reason = ensureVoidReason(voidReason);
-  const access = { machineName, userId, minNumber };
+  const access = { machineName, userId, minNumber, branchId };
 
   if (!Number.isInteger(normalizedItemId) || normalizedItemId <= 0) {
     const error = new Error('A valid line item id is required.');
@@ -1940,7 +2007,7 @@ async function voidPosTransactionItem(orsi, itemId, { voidReason, machineName, m
   }
 
   const transaction = await fetchTransactionRowByOrsi(normalizedOrsi);
-  const items = await listSalesItemsByTransaction(normalizedOrsi);
+  const items = await listSalesItemsByTransaction(normalizedOrsi, access.branchId);
 
   return { transaction, items };
 }
@@ -1969,7 +2036,7 @@ async function getPosTransactionReceipt(orsi, accessContext) {
     throw error;
   }
 
-  const allItems = await listSalesItemsByTransaction(normalizedOrsi);
+  const allItems = await listSalesItemsByTransaction(normalizedOrsi, accessContext.branchId);
   const activeItems = allItems.filter((item) => !isVoidedFlag(item.VOIDED));
   const lines = activeItems.map(mapSalesBRowToCheckoutLine);
 
@@ -2002,6 +2069,7 @@ async function getPosTransactionReceipt(orsi, accessContext) {
 
 module.exports = {
   lookupTerminal,
+  listTerminalsByBranchCode,
   lookupProductByBarcode,
   searchProducts,
   listActiveSeries,

@@ -26,6 +26,25 @@ export function resolveBranchCode(config?: Pick<PosConfig, 'branch_code'> | null
   return code || undefined
 }
 
+export function branchCodesMatch(a?: string, b?: string): boolean {
+  const left = a?.trim()
+  const right = b?.trim()
+
+  if (!left || !right) {
+    return false
+  }
+
+  return left.toUpperCase() === right.toUpperCase()
+}
+
+export function assertTerminalMatchesBranch(terminal: TerminalLookup, branchCode: string): void {
+  if (!branchCodesMatch(terminal.branch_code, branchCode)) {
+    const actual = terminal.branch_code?.trim() || 'another branch'
+    const expected = branchCode.trim()
+    throw new Error(`Terminal "${terminal.terminal_name}" is registered to branch ${actual}, not ${expected}.`)
+  }
+}
+
 export function formatBranchLabel(config: Pick<PosConfig, 'branch_name' | 'branch_code' | 'branch'>): string {
   const name = config.branch_name?.trim() || config.branch?.trim()
   const code = config.branch_code?.trim()

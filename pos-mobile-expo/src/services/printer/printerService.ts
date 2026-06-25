@@ -50,9 +50,17 @@ export function buildReceiptText(options: {
   })
 }
 
-export function buildTestPrintText(options: { config: PosConfig; printer: PrinterDevice }) {
+export function buildTestPrintText(options: {
+  config: PosConfig
+  printer: PrinterDevice
+  heading?: ReceiptHeading | null
+}) {
   const layoutId = resolveTestPrintLayout(options.config.test_print_layout)
-  const body = buildTestPrintByLayout(layoutId, options)
+  const body = buildTestPrintByLayout(layoutId, {
+    config: options.config,
+    printer: options.printer,
+    heading: options.heading ?? null,
+  })
   return applyPrintMarginsToText(body, {
     left: options.config.print_margin_left,
     right: options.config.print_margin_right,
@@ -167,7 +175,9 @@ export async function printTestPage(
     heading === undefined
       ? await getPosReceiptContextPublic(resolveBranchCode(config)).catch(() => null)
       : heading
-  const text = appendEscPosAutoCut(buildTestPrintText({ config, printer }))
+  const text = appendEscPosAutoCut(
+    buildTestPrintText({ config, printer, heading: resolvedHeading }),
+  )
   return printReceipt(
     text,
     printer.name,

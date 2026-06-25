@@ -1,9 +1,9 @@
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native'
+import { Pressable, Text, View } from 'react-native'
 import { colors, spacing } from '../../styles/theme'
 import { alertMessage, confirmAsync } from '../../utils/confirm'
 import { useEffect, useState } from 'react'
 import MenuDropdown from './MenuDropdown'
-import { formatInteger, formatMoney } from '../../utils/vat'
+import SalesSeriesSelectModal from '../modals/SalesSeriesSelectModal'
 import {
   MENU_RECEIPT_LAYOUT_OPTIONS,
   MENU_TEST_PRINT_LAYOUT_OPTIONS,
@@ -359,163 +359,23 @@ export default function TopBar({
               <Text style={{ color: colors.textMuted, fontWeight: '700' }}>v</Text>
             </Pressable>
 
-            <Modal
+            <SalesSeriesSelectModal
               visible={seriesDropdownOpen}
-              transparent
-              animationType="fade"
-              onRequestClose={() => setSeriesDropdownOpen(false)}
-            >
-              <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24, alignItems: 'center' }}>
-                <View style={{ backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, maxHeight: '70%', width: '100%', maxWidth: 560 }}>
-                  <Text style={{ color: colors.text, fontWeight: '800', marginBottom: spacing.sm }}>Select Sales Series</Text>
-                  <Text style={{ color: colors.warning, fontSize: 12, marginBottom: spacing.md, lineHeight: 18 }}>
-                    Closing a series will end your shift. You will need to start a new series before you can sell again.
-                  </Text>
-                  <ScrollView showsVerticalScrollIndicator={false}>
-                    {seriesOptions.map((series) => {
-                      const isActive = activeSeriesNo === series
-                      const isClosingRow = closingSeriesNo === series || (isClosingSeries && isActive)
-                      const requirements = closeRequirementsBySeries[series]
-                      const isMissingReports = Boolean(requirements) && !requirements.can_close
-                      const missingReportsLabel = requirements?.missing_reports.join(' and ')
-                      const cannotClose = isClosingRow || isMissingReports
-                      const summary = summaryBySeries[series]
-
-                      return (
-                        <View
-                          key={series}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: spacing.sm,
-                            paddingVertical: spacing.xs,
-                            paddingHorizontal: spacing.xs,
-                            borderRadius: 8,
-                            marginBottom: spacing.xs,
-                            backgroundColor: isActive ? colors.accent : colors.surfaceAlt,
-                          }}
-                        >
-                          <Pressable
-                            style={{ flex: 1, paddingVertical: spacing.sm, paddingHorizontal: spacing.sm }}
-                            onPress={() => {
-                              onSelectSeries(series)
-                              setSeriesDropdownOpen(false)
-                            }}
-                          >
-                            <Text style={{ color: isActive ? '#0f172a' : colors.text, fontWeight: '700' }} numberOfLines={1}>
-                              {series}
-                            </Text>
-                            {summary ? (
-                              <View
-                                style={{
-                                  marginTop: spacing.xs,
-                                  backgroundColor: isActive ? 'rgba(15,23,42,0.12)' : colors.surface,
-                                  borderWidth: 1,
-                                  borderColor: isActive ? 'rgba(15,23,42,0.22)' : colors.border,
-                                  borderRadius: 6,
-                                  paddingHorizontal: spacing.sm,
-                                  paddingVertical: 6,
-                                }}
-                              >
-                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-                                  <View
-                                    style={{
-                                      borderRadius: 999,
-                                      paddingHorizontal: 8,
-                                      paddingVertical: 4,
-                                      backgroundColor: isActive ? 'rgba(15,23,42,0.16)' : '#13263e',
-                                      borderWidth: 1,
-                                      borderColor: isActive ? 'rgba(15,23,42,0.28)' : '#22456e',
-                                    }}
-                                  >
-                                    <Text style={{ color: isActive ? '#0f172a' : '#93c5fd', fontSize: 10, fontWeight: '700' }}>
-                                      Total {formatMoney(summary.total_sales)}
-                                    </Text>
-                                  </View>
-                                  <View
-                                    style={{
-                                      borderRadius: 999,
-                                      paddingHorizontal: 8,
-                                      paddingVertical: 4,
-                                      backgroundColor: isActive ? 'rgba(5,46,22,0.14)' : '#10261a',
-                                      borderWidth: 1,
-                                      borderColor: isActive ? 'rgba(5,46,22,0.28)' : '#1f5b39',
-                                    }}
-                                  >
-                                    <Text style={{ color: isActive ? '#14532d' : '#86efac', fontSize: 10, fontWeight: '700' }}>
-                                      Net {formatMoney(summary.net_sales)}
-                                    </Text>
-                                  </View>
-                                  <View
-                                    style={{
-                                      borderRadius: 999,
-                                      paddingHorizontal: 8,
-                                      paddingVertical: 4,
-                                      backgroundColor: isActive ? 'rgba(66,32,6,0.14)' : '#2b1c0d',
-                                      borderWidth: 1,
-                                      borderColor: isActive ? 'rgba(66,32,6,0.28)' : '#6b4b1f',
-                                    }}
-                                  >
-                                    <Text style={{ color: isActive ? '#7c2d12' : '#fcd34d', fontSize: 10, fontWeight: '700' }}>
-                                      VAT {formatMoney(summary.vat_amount)}
-                                    </Text>
-                                  </View>
-                                  <View
-                                    style={{
-                                      borderRadius: 999,
-                                      paddingHorizontal: 8,
-                                      paddingVertical: 4,
-                                      backgroundColor: isActive ? 'rgba(30,41,59,0.16)' : '#1f2937',
-                                      borderWidth: 1,
-                                      borderColor: isActive ? 'rgba(30,41,59,0.28)' : '#374151',
-                                    }}
-                                  >
-                                    <Text style={{ color: isActive ? '#0f172a' : '#d1d5db', fontSize: 10, fontWeight: '700' }}>
-                                      Qty Sold {formatInteger(summary.qty_sold)}
-                                    </Text>
-                                  </View>
-                                </View>
-                              </View>
-                            ) : null}
-                          </Pressable>
-                          <Pressable
-                            style={{
-                              backgroundColor: colors.bad,
-                              borderRadius: 6,
-                              paddingVertical: spacing.sm,
-                              paddingHorizontal: spacing.md,
-                              opacity: cannotClose ? 0.5 : 1,
-                            }}
-                            onPress={(event) => {
-                              event?.stopPropagation?.()
-                              void handleCloseSeriesPress(series)
-                            }}
-                            disabled={cannotClose}
-                          >
-                            <Text style={{ color: '#fff', fontWeight: '800', fontSize: 12 }}>
-                              {isClosingRow ? '...' : '✕ Close'}
-                            </Text>
-                          </Pressable>
-                        </View>
-                      )
-                    })}
-                  </ScrollView>
-                  <Text style={{ color: colors.textMuted, fontSize: 11, marginTop: spacing.sm, lineHeight: 16 }}>
-                    {isLoadingCloseRequirements || isLoadingSeriesSummaries
-                      ? 'Loading series details...'
-                      : 'Tip: If Close is disabled, print the missing X/Z report from the Report menu first.'}
-                  </Text>
-                  {!isLoadingCloseRequirements && !isLoadingSeriesSummaries ? (
-                    <Text style={{ color: colors.warning, fontSize: 11, marginTop: spacing.xs, lineHeight: 16 }}>
-                      Validated: Print X and Z reports before closing.
-                    </Text>
-                  ) : null}
-                  <Pressable style={{ marginTop: spacing.md, alignSelf: 'flex-end' }} onPress={() => setSeriesDropdownOpen(false)}>
-                    <Text style={{ color: colors.textMuted, fontWeight: '700' }}>Dismiss</Text>
-                  </Pressable>
-                </View>
-              </View>
-            </Modal>
+              seriesOptions={seriesOptions}
+              activeSeriesNo={activeSeriesNo}
+              closeRequirementsBySeries={closeRequirementsBySeries}
+              summaryBySeries={summaryBySeries}
+              isLoadingCloseRequirements={isLoadingCloseRequirements}
+              isLoadingSeriesSummaries={isLoadingSeriesSummaries}
+              closingSeriesNo={closingSeriesNo}
+              isClosingSeries={isClosingSeries}
+              onSelectSeries={(series) => {
+                onSelectSeries(series)
+                setSeriesDropdownOpen(false)
+              }}
+              onCloseSeries={(series) => void handleCloseSeriesPress(series)}
+              onDismiss={() => setSeriesDropdownOpen(false)}
+            />
           </View>
         ) : null}
       </View>

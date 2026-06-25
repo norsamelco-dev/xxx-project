@@ -23,6 +23,21 @@ export type TerminalLookup = {
   is_active: boolean
 }
 
+export type TerminalListItem = {
+  terminal_name: string
+  branch_id?: number
+  branch_code?: string
+  branch_name?: string
+  is_active: boolean
+}
+
+export type BranchTerminalList = {
+  branch_id: number
+  branch_code: string
+  branch_name: string
+  terminals: TerminalListItem[]
+}
+
 export type ProductLookup = {
   product_id: number
   barcode: string

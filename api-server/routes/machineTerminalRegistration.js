@@ -12,12 +12,17 @@ const {
 
 const router = express.Router();
 
+function getSessionBranchId(request) {
+  return request.branchId;
+}
+
 router.use(requireAuth);
 router.use(requireBranchContext);
 
 router.get('/', async (request, response) => {
   try {
-    const data = await listMachines(request.branchId);
+    const branchId = getSessionBranchId(request);
+    const data = await listMachines(branchId);
     response.json({ data });
   } catch (error) {
     response.status(500).json({
@@ -28,8 +33,9 @@ router.get('/', async (request, response) => {
 
 router.post('/validate', async (request, response) => {
   try {
+    const branchId = getSessionBranchId(request);
     const excludeId = request.body?.id || request.body?.exclude_id || null;
-    const duplicates = await findDuplicateFields(request.branchId, request.body || {}, excludeId);
+    const duplicates = await findDuplicateFields(branchId, request.body || {}, excludeId);
 
     response.json({
       duplicates,
@@ -44,7 +50,8 @@ router.post('/validate', async (request, response) => {
 
 router.post('/', async (request, response) => {
   try {
-    const data = await createMachine(request.branchId, request.body || {});
+    const branchId = getSessionBranchId(request);
+    const data = await createMachine(branchId, request.body || {});
     response.status(201).json({
       data,
       message: 'Machine terminal created successfully.',
@@ -71,7 +78,8 @@ router.put('/:id', async (request, response) => {
       });
     }
 
-    const data = await updateMachine(request.branchId, id, request.body || {});
+    const branchId = getSessionBranchId(request);
+    const data = await updateMachine(branchId, id, request.body || {});
 
     if (!data) {
       return response.status(404).json({
@@ -127,7 +135,8 @@ router.delete('/:id', async (request, response) => {
       });
     }
 
-    const deleted = await deleteMachine(request.branchId, id);
+    const branchId = getSessionBranchId(request);
+    const deleted = await deleteMachine(branchId, id);
 
     if (!deleted) {
       return response.status(404).json({

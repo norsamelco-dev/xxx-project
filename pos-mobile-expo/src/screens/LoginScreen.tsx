@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Image, Modal, Pressable, Text, TextInput, View } from 'react-native'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
+import ConfirmModal from '../components/modals/ConfirmModal'
 import { useAuth } from '../context/AuthContext'
 import { loadConfig, saveConfig } from '../services/config/configStore'
 import { mergeTerminalIntoConfig, resolveBranchCode, formatBranchLabel } from '../services/config/terminalConfig'
+import { performTerminalReregister } from '../services/config/reregisterTerminal'
 import { getPosReceiptContextPublic, lookupTerminal } from '../services/api/posApi'
 import { usePosSession } from '../context/PosSessionContext'
 import type { RootStackParamList } from '../navigation/types'
@@ -19,6 +21,9 @@ import { saveApiBaseConfig } from '../services/config/apiBaseConfig'
 import { colors, spacing } from '../styles/theme'
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>
+
+const LOGO_TAP_TARGET = 5
+const LOGO_TAP_RESET_MS = 2000
 
 export default function LoginScreen({ navigation }: Props) {
   const { login, logout, isLoading } = useAuth()
@@ -39,6 +44,10 @@ export default function LoginScreen({ navigation }: Props) {
   const [fallbackTestOk, setFallbackTestOk] = useState<boolean | null>(null)
   const [primaryApiUrl, setPrimaryApiUrl] = useState(getApiBaseUrlOverrides().primary)
   const [fallbackApiUrl, setFallbackApiUrl] = useState(getApiBaseUrlOverrides().fallback)
+  const [showReregisterModal, setShowReregisterModal] = useState(false)
+  const [isReregistering, setIsReregistering] = useState(false)
+  const logoTapCountRef = useRef(0)
+  const logoTapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isDesktop = typeof window !== 'undefined' && window.desktop?.isElectron === true
 
@@ -76,6 +85,52 @@ export default function LoginScreen({ navigation }: Props) {
       isMounted = false
     }
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (logoTapTimeoutRef.current) {
+        clearTimeout(logoTapTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  function handleLogoPress() {
+    if (logoTapTimeoutRef.current) {
+      clearTimeout(logoTapTimeoutRef.current)
+    }
+
+    logoTapCountRef.current += 1
+
+    if (logoTapCountRef.current >= LOGO_TAP_TARGET) {
+      logoTapCountRef.current = 0
+      setShowReregisterModal(true)
+      return
+    }
+
+    logoTapTimeoutRef.current = setTimeout(() => {
+      logoTapCountRef.current = 0
+      logoTapTimeoutRef.current = null
+    }, LOGO_TAP_RESET_MS)
+  }
+
+  async function handleConfirmReregister() {
+    if (isReregistering) {
+      return
+    }
+
+    setIsReregistering(true)
+
+    try {
+      await performTerminalReregister({
+        navigation,
+        logout,
+        onConfigCleared: () => setConfig(null),
+      })
+      setShowReregisterModal(false)
+    } finally {
+      setIsReregistering(false)
+    }
+  }
 
   function handleOpenApiModal() {
     const current = getApiBaseUrlOverrides()
@@ -254,7 +309,9 @@ export default function LoginScreen({ navigation }: Props) {
         ) : null}
         {logoUri ? (
           <View style={{ alignItems: 'center', marginBottom: spacing.lg }}>
-            <Image source={{ uri: logoUri }} style={{ width: 300, height: 110, maxWidth: '100%' }} resizeMode="contain" />
+            <Pressable onPress={handleLogoPress} accessibilityLabel="Business logo">
+              <Image source={{ uri: logoUri }} style={{ width: 300, height: 110, maxWidth: '100%' }} resizeMode="contain" />
+            </Pressable>
           </View>
         ) : null}
         <Text style={commonStyles.title}>Cashier Sign In</Text>
@@ -391,6 +448,21 @@ export default function LoginScreen({ navigation }: Props) {
           </View>
         </View>
       </Modal>
+
+      <ConfirmModal
+        visible={showReregisterModal}
+        title="Switch terminal registration?"
+        message="This will clear this device's terminal setup and return to Machine Registration. Continue?"
+        confirmLabel={isReregistering ? 'Continuing...' : 'Continue'}
+        cancelLabel="Cancel"
+        destructive
+        onConfirm={() => void handleConfirmReregister()}
+        onCancel={() => {
+          if (!isReregistering) {
+            setShowReregisterModal(false)
+          }
+        }}
+      />
     </View>
   )
 }

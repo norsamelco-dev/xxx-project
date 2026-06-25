@@ -3,6 +3,7 @@ const requirePosAuth = require('../middleware/requirePosAuth');
 const requireBranchContext = require('../middleware/requireBranchContext');
 const {
   lookupTerminal,
+  listTerminalsByBranchCode,
   lookupProductByBarcode,
   searchProducts,
   listActiveSeries,
@@ -36,6 +37,15 @@ const router = express.Router();
 router.get('/terminals/lookup', async (request, response) => {
   try {
     const data = await lookupTerminal(request.query.machine_name, request.query.branch_code);
+    return response.json({ data });
+  } catch (error) {
+    return response.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+router.get('/terminals/by-branch', async (request, response) => {
+  try {
+    const data = await listTerminalsByBranchCode(request.query.branch_code);
     return response.json({ data });
   } catch (error) {
     return response.status(error.statusCode || 500).json({ error: error.message });
@@ -272,6 +282,7 @@ router.post('/sales/transactions/:orsi/void', async (request, response) => {
       machineName: access.machineName,
       minNumber: access.minNumber,
       userId: access.userId,
+      branchId: access.branchId,
     });
 
     return response.json({ data, message: 'Transaction cancelled.' });
@@ -288,6 +299,7 @@ router.post('/sales/transactions/:orsi/items/:itemId/void', async (request, resp
       machineName: access.machineName,
       minNumber: access.minNumber,
       userId: access.userId,
+      branchId: access.branchId,
     });
 
     return response.json({ data, message: 'Line item voided.' });

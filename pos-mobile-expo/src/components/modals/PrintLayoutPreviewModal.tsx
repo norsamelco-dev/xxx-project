@@ -105,7 +105,7 @@ export default function PrintLayoutPreviewModal({
               lineHeight: 18,
             }}
           >
-            Preview shows the store logo and text that will print on 80mm thermal paper. Logo size and position are set in admin Business Profile Settings.
+            Preview shows the store logo and text that will print on 80mm thermal paper. Logo size and position are set per branch on the Branches page in admin.
           </Text>
 
           {isSplitPreview ? (
